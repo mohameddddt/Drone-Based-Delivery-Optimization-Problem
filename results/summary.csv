@@ -1,0 +1,4 @@
+method,feasible_runs,average_cost,average_runtime_sec,average_gap_percent
+Branch and Bound,10,53.847379,0.093966,0.000000
+Genetic Algorithm,10,53.887864,0.840685,0.059881
+Simulated Annealing,10,53.883353,0.718415,0.052519

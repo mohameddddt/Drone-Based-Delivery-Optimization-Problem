@@ -1,0 +1,31 @@
+instance,customers,drones,method,feasible,optimal,cost,distance,routes,runtime_sec,iterations,lower_bound,gap_percent
+instance_01,8,4,Branch and Bound,True,True,34.675216,27.063637,4,0.000648,51,34.675216,0.000000
+instance_01,8,4,Genetic Algorithm,True,False,34.675216,27.063637,4,0.176068,220,,0.000000
+instance_01,8,4,Simulated Annealing,True,False,34.675216,27.063637,4,0.285827,9000,,0.000000
+instance_02,9,4,Branch and Bound,True,True,34.998616,27.335102,4,0.002093,680,34.998616,0.000000
+instance_02,9,4,Genetic Algorithm,True,False,34.998616,27.335102,4,0.250142,220,,0.000000
+instance_02,9,4,Simulated Annealing,True,False,34.998616,27.335102,4,0.361549,9000,,0.000000
+instance_03,10,5,Branch and Bound,True,True,39.871051,30.558683,4,0.006717,2704,39.871051,0.000000
+instance_03,10,5,Genetic Algorithm,True,False,39.871051,30.558683,4,0.317456,220,,0.000000
+instance_03,10,5,Simulated Annealing,True,False,39.871051,30.558683,4,0.427789,9000,,0.000000
+instance_04,11,5,Branch and Bound,True,True,46.968725,35.944530,5,0.003053,597,46.968725,0.000000
+instance_04,11,5,Genetic Algorithm,True,False,46.968725,35.944530,5,0.411472,220,,0.000000
+instance_04,11,5,Simulated Annealing,True,False,46.968725,35.944530,5,0.412978,9000,,0.000000
+instance_05,12,5,Branch and Bound,True,True,61.260207,45.700382,5,0.018400,9447,61.260207,0.000000
+instance_05,12,5,Genetic Algorithm,True,False,61.323112,46.507388,5,0.797770,220,,0.102684
+instance_05,12,5,Simulated Annealing,True,False,61.278006,46.930214,5,0.839712,9000,,0.029055
+instance_06,13,6,Branch and Bound,True,True,56.713266,42.976413,6,0.022822,6600,56.713266,0.000000
+instance_06,13,6,Genetic Algorithm,True,False,56.713266,42.976413,6,0.918599,220,,0.000000
+instance_06,13,6,Simulated Annealing,True,False,56.713266,42.976413,6,0.810354,9000,,0.000000
+instance_07,14,6,Branch and Bound,True,True,69.270393,52.816109,6,0.098920,30424,69.270393,0.000000
+instance_07,14,6,Genetic Algorithm,True,False,69.599525,53.516162,6,1.076935,220,,0.475141
+instance_07,14,6,Simulated Annealing,True,False,69.599525,53.516162,6,0.958333,9000,,0.475141
+instance_08,15,6,Branch and Bound,True,True,62.763656,45.989031,6,0.141917,39226,62.763656,0.000000
+instance_08,15,6,Genetic Algorithm,True,False,62.763656,45.989031,6,1.404809,220,,0.000000
+instance_08,15,6,Simulated Annealing,True,False,62.763656,45.989031,6,1.012107,9000,,0.000000
+instance_09,16,7,Branch and Bound,True,True,70.918240,52.225684,7,0.195031,54701,70.918240,0.000000
+instance_09,16,7,Genetic Algorithm,True,False,70.918240,52.225684,7,1.304161,220,,0.000000
+instance_09,16,7,Simulated Annealing,True,False,70.918240,52.225684,7,0.963593,9000,,0.000000
+instance_10,17,7,Branch and Bound,True,True,61.034423,46.302648,7,0.450062,112598,61.034423,0.000000
+instance_10,17,7,Genetic Algorithm,True,False,61.047233,46.674146,7,1.749438,220,,0.020989
+instance_10,17,7,Simulated Annealing,True,False,61.047233,46.674146,7,1.111907,9000,,0.020989

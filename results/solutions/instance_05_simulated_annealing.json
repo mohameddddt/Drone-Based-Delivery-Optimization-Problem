@@ -1,0 +1,61 @@
+{
+  "instance": "instance_05",
+  "method": "Simulated Annealing",
+  "feasible": true,
+  "optimal": false,
+  "cost": 61.2780061853,
+  "distance": 46.930214,
+  "runtime_sec": 0.8397116999994978,
+  "iterations": 9000,
+  "lower_bound": null,
+  "gap_percent": 0.029054538206971035,
+  "routes": [
+    {
+      "customers": [
+        "C001",
+        "C003",
+        "C004"
+      ],
+      "load": 4.677,
+      "distance": 8.916945,
+      "energy": 12.30383103918
+    },
+    {
+      "customers": [
+        "C002",
+        "C012",
+        "C005"
+      ],
+      "load": 4.578,
+      "distance": 9.72277,
+      "energy": 12.765185651140001
+    },
+    {
+      "customers": [
+        "C007",
+        "C010"
+      ],
+      "load": 3.935,
+      "distance": 9.353777000000001,
+      "energy": 12.29711581274
+    },
+    {
+      "customers": [
+        "C009",
+        "C006"
+      ],
+      "load": 3.7779999999999996,
+      "distance": 8.299643,
+      "energy": 10.563762496999999
+    },
+    {
+      "customers": [
+        "C011",
+        "C008"
+      ],
+      "load": 2.909,
+      "distance": 10.637079,
+      "energy": 13.34811118524
+    }
+  ]
+}

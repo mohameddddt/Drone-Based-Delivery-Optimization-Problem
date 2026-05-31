@@ -1,0 +1,70 @@
+{
+  "instance": "instance_07",
+  "method": "Branch and Bound",
+  "feasible": true,
+  "optimal": true,
+  "cost": 69.27039300722001,
+  "distance": 52.816109000000004,
+  "runtime_sec": 0.09891960000004474,
+  "iterations": 30424,
+  "lower_bound": 69.27039300722001,
+  "gap_percent": 0.0,
+  "routes": [
+    {
+      "customers": [
+        "C001",
+        "C011"
+      ],
+      "load": 3.98,
+      "distance": 9.485584000000001,
+      "energy": 12.83185327966
+    },
+    {
+      "customers": [
+        "C010",
+        "C004"
+      ],
+      "load": 3.89,
+      "distance": 7.539799,
+      "energy": 9.82605336754
+    },
+    {
+      "customers": [
+        "C006",
+        "C008",
+        "C002"
+      ],
+      "load": 4.4510000000000005,
+      "distance": 13.451490999999999,
+      "energy": 17.78530650634
+    },
+    {
+      "customers": [
+        "C007",
+        "C009"
+      ],
+      "load": 3.911,
+      "distance": 6.024844,
+      "energy": 8.02511245144
+    },
+    {
+      "customers": [
+        "C014",
+        "C003",
+        "C012"
+      ],
+      "load": 3.963,
+      "distance": 10.981480000000001,
+      "energy": 14.19005872858
+    },
+    {
+      "customers": [
+        "C013",
+        "C005"
+      ],
+      "load": 2.927,
+      "distance": 5.332911,
+      "energy": 6.61200867366
+    }
+  ]
+}

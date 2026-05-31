@@ -1,0 +1,71 @@
+{
+  "instance": "instance_08",
+  "method": "Genetic Algorithm",
+  "feasible": true,
+  "optimal": false,
+  "cost": 62.76365646024,
+  "distance": 45.989031000000004,
+  "runtime_sec": 1.4048094999998284,
+  "iterations": 220,
+  "lower_bound": null,
+  "gap_percent": 0.0,
+  "routes": [
+    {
+      "customers": [
+        "C001",
+        "C011",
+        "C003"
+      ],
+      "load": 4.231,
+      "distance": 9.305861,
+      "energy": 12.838129193479999
+    },
+    {
+      "customers": [
+        "C008",
+        "C010",
+        "C015"
+      ],
+      "load": 4.829,
+      "distance": 9.381194,
+      "energy": 13.23240948602
+    },
+    {
+      "customers": [
+        "C012"
+      ],
+      "load": 1.884,
+      "distance": 2.68132,
+      "energy": 3.1359646191999997
+    },
+    {
+      "customers": [
+        "C013",
+        "C014"
+      ],
+      "load": 3.783,
+      "distance": 6.439634,
+      "energy": 8.23878886634
+    },
+    {
+      "customers": [
+        "C004",
+        "C009",
+        "C005"
+      ],
+      "load": 4.916,
+      "distance": 10.215440000000001,
+      "energy": 14.08984616258
+    },
+    {
+      "customers": [
+        "C006",
+        "C002",
+        "C007"
+      ],
+      "load": 4.7459999999999996,
+      "distance": 7.9655819999999995,
+      "energy": 11.22851813262
+    }
+  ]
+}
