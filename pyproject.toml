@@ -1,0 +1,9 @@
+[project]
+name = "drone-delivery-optimization"
+version = "1.0.0"
+description = "Drone delivery routing with exact and metaheuristic solvers"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
