@@ -1,0 +1,36 @@
+{
+  "instance_id": 6,
+  "depot": {
+    "lat": -0.028055336781188413,
+    "lon": 109.3602187805915
+  },
+  "n_drones": 3,
+  "limits": {
+    "max_payload": 5.0,
+    "max_battery_km": 25.0
+  },
+  "energy_model": {
+    "energy_per_km": 1.0,
+    "payload_factor": 0.2
+  },
+  "no_fly_zones": [
+    {
+      "type": "circle",
+      "id": "NFZ-1",
+      "center": [
+        -0.02284710440365195,
+        109.36209500883814
+      ],
+      "radius_km": 0.7
+    },
+    {
+      "type": "circle",
+      "id": "NFZ-2",
+      "center": [
+        -0.019982434677244497,
+        109.3574801438787
+      ],
+      "radius_km": 0.7
+    }
+  ]
+}
