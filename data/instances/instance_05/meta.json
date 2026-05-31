@@ -1,0 +1,19 @@
+{
+  "name": "instance_05",
+  "seed": 2511,
+  "n_customers": 12,
+  "n_drones": 5,
+  "depot": {
+    "x_km": 0.0,
+    "y_km": 0.0
+  },
+  "limits": {
+    "max_payload": 5.0,
+    "max_battery_km": 18.0
+  },
+  "energy_model": {
+    "energy_per_km": 1.0,
+    "payload_factor": 0.18
+  },
+  "no_fly_zones": []
+}
