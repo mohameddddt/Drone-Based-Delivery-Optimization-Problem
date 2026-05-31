@@ -1,0 +1,193 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{array}
+\geometry{margin=2.5cm}
+
+\title{Drone-Based Delivery Optimization Problem}
+\author{Combinatorial Optimization and Metaheuristics Project}
+\date{2026}
+
+\begin{document}
+\maketitle
+
+\section{Problem Definition}
+
+A company operates a fleet of drones from a single depot. Each customer has a known demand, and each drone starts at the depot, visits a sequence of customers, and returns to the depot. The objective is to serve every customer exactly once while minimizing total energy consumption.
+
+The implementation uses a complete directed graph $G=(V,A)$ with depot $0$ and customer set $N=\{1,\ldots,n\}$. The distance between nodes $i$ and $j$ is $d_{ij}$. Customer $i$ has demand $q_i$. There are at most $K$ drones, each with payload capacity $Q$ and battery distance limit $B$.
+
+Energy depends on both distance and carried load. If a drone travels arc $(i,j)$ while carrying load $L$, the energy is
+\[
+e_{ij}(L)=d_{ij} e_0 (1+\alpha L),
+\]
+where $e_0$ is the base energy per kilometer and $\alpha$ is the payload factor. After a delivery, the carried load decreases by that customer's demand.
+
+\section{Formulation 1: Load-Flow MILP}
+
+Let $x_{ijk}$ be 1 if drone $k$ uses arc $(i,j)$, and 0 otherwise. Let $y_{ik}$ be 1 if customer $i$ is assigned to drone $k$. Let $f_{ijk}$ be the payload carried by drone $k$ on arc $(i,j)$. Let $u_{ik}$ be the order variable used to remove subtours.
+
+\[
+\min \sum_{k=1}^{K}\sum_{i\in V}\sum_{\substack{j\in V\\j\neq i}}
+d_{ij} e_0 x_{ijk}
++ \alpha d_{ij} e_0 f_{ijk}
+\]
+
+subject to
+\[
+\sum_{k=1}^{K} y_{ik}=1 \qquad \forall i\in N
+\]
+\[
+\sum_{\substack{j\in V\\j\neq i}}x_{ijk}=y_{ik}
+\qquad
+\sum_{\substack{j\in V\\j\neq i}}x_{jik}=y_{ik}
+\qquad \forall i\in N,\; k=1,\ldots,K
+\]
+\[
+\sum_{j\in N}x_{0jk}=\sum_{i\in N}x_{i0k}\leq 1
+\qquad \forall k=1,\ldots,K
+\]
+\[
+\sum_{\substack{j\in V\\j\neq i}}f_{jik}
+-\sum_{\substack{j\in V\\j\neq i}}f_{ijk}
+=q_i y_{ik}
+\qquad \forall i\in N,\; k=1,\ldots,K
+\]
+\[
+0\leq f_{ijk}\leq Qx_{ijk}
+\qquad \forall i,j\in V,\; i\neq j,\; k=1,\ldots,K
+\]
+\[
+\sum_{i\in V}\sum_{\substack{j\in V\\j\neq i}} d_{ij}x_{ijk}\leq B
+\qquad \forall k=1,\ldots,K
+\]
+\[
+u_{ik}-u_{jk}+n x_{ijk}\leq n-1
+\qquad \forall i,j\in N,\; i\neq j,\; k=1,\ldots,K
+\]
+\[
+x_{ijk}\in\{0,1\},\quad y_{ik}\in\{0,1\},\quad f_{ijk}\geq 0.
+\]
+
+This formulation models drone routes at the arc level. The payload-flow variables make the energy objective sensitive to the remaining load.
+
+\section{Formulation 2: Route Set Partitioning}
+
+Let $\mathcal{R}$ be the set of all feasible drone routes. A route is feasible if it starts at the depot, ends at the depot, respects payload capacity, respects the battery limit, and uses only allowed arcs. Let $c_r$ be the exact energy cost of route $r$, and let $a_{ir}$ be 1 if route $r$ serves customer $i$.
+
+The decision variable $z_r$ is 1 if route $r$ is selected.
+
+\[
+\min \sum_{r\in \mathcal{R}} c_r z_r
+\]
+\[
+\sum_{r\in \mathcal{R}} a_{ir}z_r=1
+\qquad \forall i\in N
+\]
+\[
+\sum_{r\in \mathcal{R}}z_r\leq K
+\]
+\[
+z_r\in\{0,1\}
+\qquad \forall r\in \mathcal{R}.
+\]
+
+This formulation views the problem as selecting complete feasible routes instead of choosing individual arcs. It is the formulation used by the exact branch-and-bound implementation.
+
+\section{Complexity}
+
+The problem is NP-hard. If payload and battery constraints are relaxed and $K=1$, the problem contains the traveling salesman problem as a special case. With several drones and capacity constraints, it also contains the capacitated vehicle routing problem. The route set-partitioning formulation is a binary set-partitioning problem, which is also NP-hard.
+
+\section{Exact Method}
+
+The exact algorithm has two stages.
+
+First, all feasible elementary routes are generated with depth-first search. The recursion stops when adding a customer would violate the payload capacity, battery limit, or connectivity constraint. Since route energy depends on delivery order, different permutations of the same customer subset are evaluated, and only the cheapest feasible route for each subset is kept.
+
+Second, branch and bound solves the set-partitioning model. At each node, the algorithm selects an uncovered customer with the smallest number of compatible candidate routes. Branches correspond to selecting one route that covers this customer. The lower bound is computed by summing, for every uncovered customer, its cheapest route-cost share. A payload bound also prunes nodes when the remaining demand cannot fit in the remaining drones. An initial upper bound is obtained from a nearest-neighbor split and a greedy cover.
+
+\section{Metaheuristics}
+
+Both metaheuristics use a giant-tour encoding: a solution is represented as a permutation of all customers. A dynamic split decoder converts the permutation into drone routes. The decoder finds the best partition of the permutation into feasible routes under payload and battery limits.
+
+\subsection{Genetic Algorithm}
+
+The genetic algorithm uses tournament selection, ordered crossover, elitism, and three mutation moves: swap, reverse, and insert. The fitness value is the decoded route energy. Infeasible permutations receive an infinite penalty, although the split decoder usually repairs permutations successfully when enough drones are available.
+
+\subsection{Simulated Annealing}
+
+Simulated annealing starts from a nearest-neighbor permutation. At each iteration, one neighbor is produced by swap, reverse, or insert. Improving moves are accepted directly. Worse feasible moves are accepted with probability
+\[
+\exp\left(-\frac{\Delta}{T}\right),
+\]
+where $\Delta$ is the increase in energy and $T$ is the current temperature. The temperature decreases exponentially.
+
+\section{Benchmark Design}
+
+Ten benchmark instances were generated with a fixed seed. The number of customers ranges from 8 to 17. Customers are distributed around the depot within a 4.2 km radius. Demands are sampled between 1.2 kg and 2.2 kg. The payload capacity is 5.0 kg, the battery limit is 18.0 km, the base energy rate is 1.0 per km, and the payload factor is 0.18. The number of drones is set to at least 3 and otherwise to $\lceil\sum_i q_i/Q\rceil+1$, which keeps the instances feasible without making them trivial.
+
+The code supports circular no-fly zones through forbidden arcs. The benchmark run keeps no-fly zones disabled so the experimental comparison focuses on the core routing, payload, and battery constraints.
+
+\section{Experimental Results}
+
+\begin{center}
+\begin{tabular}{rrrrrrrrr}
+\toprule
+Inst. & $n$ & $K$ & Exact & Time & GA & GA Gap & SA & SA Gap \\
+\midrule
+1 & 8 & 4 & 34.675 & 0.001 & 34.675 & 0.000 & 34.675 & 0.000 \\
+2 & 9 & 4 & 34.999 & 0.002 & 34.999 & 0.000 & 34.999 & 0.000 \\
+3 & 10 & 5 & 39.871 & 0.007 & 39.871 & 0.000 & 39.871 & 0.000 \\
+4 & 11 & 5 & 46.969 & 0.003 & 46.969 & 0.000 & 46.969 & 0.000 \\
+5 & 12 & 5 & 61.260 & 0.018 & 61.323 & 0.103 & 61.278 & 0.029 \\
+6 & 13 & 6 & 56.713 & 0.023 & 56.713 & 0.000 & 56.713 & 0.000 \\
+7 & 14 & 6 & 69.270 & 0.099 & 69.600 & 0.475 & 69.600 & 0.475 \\
+8 & 15 & 6 & 62.764 & 0.142 & 62.764 & 0.000 & 62.764 & 0.000 \\
+9 & 16 & 7 & 70.918 & 0.195 & 70.918 & 0.000 & 70.918 & 0.000 \\
+10 & 17 & 7 & 61.034 & 0.450 & 61.047 & 0.021 & 61.047 & 0.021 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All branch-and-bound runs reached proven optimality. The largest instance required 112,598 explored nodes and still solved in less than one second on the test machine. The genetic algorithm found the optimum on 7 of 10 instances, with an average gap of 0.0599 percent. Simulated annealing also found the optimum on 7 of 10 instances, with an average gap of 0.0525 percent.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Method & Feasible Runs & Average Cost & Average Runtime \\
+\midrule
+Branch and Bound & 10 & 53.847 & 0.094 \\
+Genetic Algorithm & 10 & 53.888 & 0.841 \\
+Simulated Annealing & 10 & 53.883 & 0.718 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Comparative Analysis}
+
+Branch and bound is the best method for these benchmark sizes because it proves optimality and remains fast. Its performance comes from the route-level formulation: capacity and battery constraints are handled before branching, which greatly reduces the search space.
+
+The two metaheuristics are useful because they scale naturally to larger instances where exact enumeration may become too expensive. Their results are very close to optimal on the tested instances. The genetic algorithm benefits from recombination, while simulated annealing is simpler and slightly faster in this run.
+
+The split decoder is the key problem-specific repair operator. It transforms any customer permutation into the cheapest feasible sequence of routes along that order. This keeps the search operators simple while still respecting payload and battery constraints.
+
+\section{Demonstration Commands}
+
+Generate the benchmark:
+\[
+\texttt{python -m drone\_delivery.cli generate --output data/instances --count 10 --seed 2026}
+\]
+
+Run the full experiment:
+\[
+\texttt{python -m drone\_delivery.cli experiment --instances data/instances --output results --seed 2026 --time-limit 60}
+\]
+
+Solve one instance:
+\[
+\texttt{python -m drone\_delivery.cli solve data/instances/instance\_10 --method all --output results/demo}
+\]
+
+\end{document}
