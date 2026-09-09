@@ -7,7 +7,7 @@ name = "drone-delivery-optimization"
 version = "2.0.0"
 description = "Drone delivery routing with load-dependent energy: exact and metaheuristic solvers"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "matplotlib>=3.7"]
+dependencies = ["numpy>=1.24", "matplotlib>=3.7", "scipy>=1.10"]
 
 [project.optional-dependencies]
 milp = ["pulp>=2.7"]

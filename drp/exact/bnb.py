@@ -10,9 +10,31 @@ exactly once.
 
 Bounding and pruning
 --------------------
-`bounds.min_in_edge` gives an optimistic completion cost. A node is discarded
-when ``committed + completion >= incumbent`` (a sterile set), and also on any
-payload, battery or no-fly violation.
+Two bounds, cheap-first (roadmap §5.1). `bounds.min_in_edge` gives an O(1)
+completion estimate; a child that is already sterile against it is dropped
+without further work. A child that survives is re-bounded with
+`bounds.assignment_completion_bound`, an assignment-relaxation (Hungarian
+algorithm) bound that cannot be fooled the way the column-minimum sum can --
+see `bounds.py` for why it strictly dominates. The reported bound is the
+better of the two. A node is discarded when ``committed + completion >=
+incumbent`` (a sterile set), and also on any payload, battery or no-fly
+violation.
+
+**A subtlety that tightening the completion bound exposed.** ``committed``
+for the still-open route must be `route_energy_open`, not `route_energy`:
+the latter bakes in a return-to-depot leg from whichever customer is
+currently last, as if the route stopped right there. If the route goes on to
+take more customers, that leg is never actually flown -- it is replaced by a
+longer path through the rest of the route -- so charging it is phantom cost
+with no lower-bound justification. Once the completion term was tight enough
+(the assignment-relaxation bound below), phantom-return-plus-completion could
+exceed the true remaining cost and prune the actual optimum, still exhausting
+the tree and reporting a wrong answer labelled "proven optimal".
+`test_bnb_ground_truth.py` caught it directly (`res.best_energy` above the
+brute-forced truth) before this was fixed. The real return leg is charged
+exactly once: at the moment a route actually closes (`route_energy` on a
+route that is genuinely done), or inside `assignment_completion_bound`,
+which prices every candidate closing arc as one of its own options.
 
 Anytime dual bound (roadmap §5.1)
 ---------------------------------
@@ -45,11 +67,12 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-from drp.core.energy import route_energy, route_weight, total_energy
+from drp.core.energy import route_energy, route_energy_open, route_weight, total_energy
 from drp.core.feasibility import is_feasible
 from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
-from drp.exact.bounds import completion_bound, min_in_edge
+from drp.exact.bounds import (assignment_completion_bound, completion_bound,
+                               min_in_edge)
 
 
 @dataclass
@@ -104,7 +127,8 @@ def solve_bnb(inst: DRPInstance,
             res.best_energy = total_energy(inst, warm_start)
 
     full = frozenset(range(1, inst.N))
-    root_bound = completion_bound(min_in, full)
+    root_bound = max(completion_bound(min_in, full),
+                     assignment_completion_bound(inst, None, full, inst.n_drones))
 
     def recurse(routes: List[List[int]],
                 open_route: List[int],
@@ -135,9 +159,24 @@ def solve_bnb(inst: DRPInstance,
 
         # Completion cost of the current unassigned set. Because the bound is a
         # plain sum, a child's completion is this minus the served customer's
-        # term -- O(1) instead of O(n).
+        # term -- O(1) instead of O(n). Used as a cheap pre-filter: a child
+        # already sterile against it is dropped before paying for the
+        # Hungarian-algorithm bound below.
         comp = completion_bound(min_in, unassigned)
+        drones_used = len(routes) + (1 if open_route else 0)
+        routes_left = inst.n_drones - drones_used
         children: List[_Child] = []
+
+        def bound_child(base: float, rest: frozenset, cheap_rest: float,
+                        child_prev: int, child_routes_left: int) -> Optional[float]:
+            cheap_lb = base + cheap_rest
+            if cheap_lb >= res.best_energy - 1e-9:
+                return None  # sterile against the cheap bound alone
+            if not rest:
+                return cheap_lb
+            ap_rest = assignment_completion_bound(inst, child_prev, rest,
+                                                  child_routes_left)
+            return base + max(cheap_rest, ap_rest)
 
         # Branch A: extend the open route.
         if open_route:
@@ -148,15 +187,15 @@ def solve_bnb(inst: DRPInstance,
                 trial = open_route + [c]
                 if route_weight(inst, trial) > inst.payload + 1e-9:
                     continue
-                e_trial = route_energy(inst, trial)
-                if e_trial > inst.battery + 1e-9:
+                if route_energy(inst, trial) > inst.battery + 1e-9:
                     continue
                 rest = unassigned - {c}
-                child_lb = closed_energy + e_trial + (comp - min_in[c])
-                children.append((routes, trial, rest, closed_energy, child_lb))
+                child_lb = bound_child(closed_energy + route_energy_open(inst, trial),
+                                       rest, comp - min_in[c], c, routes_left)
+                if child_lb is not None:
+                    children.append((routes, trial, rest, closed_energy, child_lb))
 
         # Branch B: close the open route, open a new one (symmetry-broken).
-        drones_used = len(routes) + (1 if open_route else 0)
         if drones_used < inst.n_drones:
             new_routes = routes + ([open_route] if open_route else [])
             new_closed = closed_energy + (route_energy(inst, open_route)
@@ -168,12 +207,13 @@ def solve_bnb(inst: DRPInstance,
                 single = [c]
                 if route_weight(inst, single) > inst.payload + 1e-9:
                     continue
-                e_single = route_energy(inst, single)
-                if e_single > inst.battery + 1e-9:
+                if route_energy(inst, single) > inst.battery + 1e-9:
                     continue
                 rest = unassigned - {c}
-                child_lb = new_closed + e_single + (comp - min_in[c])
-                children.append((new_routes, single, rest, new_closed, child_lb))
+                child_lb = bound_child(new_closed + route_energy_open(inst, single),
+                                       rest, comp - min_in[c], c, routes_left - 1)
+                if child_lb is not None:
+                    children.append((new_routes, single, rest, new_closed, child_lb))
 
         # Explore depth-first, cheapest bound first. If the clock runs out
         # part-way, every child we never entered joins the frontier.

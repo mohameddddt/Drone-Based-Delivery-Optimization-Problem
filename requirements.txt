@@ -1,6 +1,7 @@
 # Runtime
 numpy>=1.24
 matplotlib>=3.7
+scipy>=1.10   # Hungarian algorithm for the B&B assignment-relaxation bound
 
 # Formulation 2: the commodity-flow MILP (drp.exact.milp_flow)
 pulp>=2.7
