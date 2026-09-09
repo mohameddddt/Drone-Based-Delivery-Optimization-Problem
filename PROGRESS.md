@@ -42,9 +42,13 @@ The notebook is now a frozen artefact, and the code lives in a real package:
 drp/core/  geometry/  instances/  exact/  meta/  eval/  viz/  app/
 ```
 
-`Van Der Linde_Code.ipynb` is untouched — the marks are in and its numbers appear in the
-report. `tests/test_notebook_parity.py` pins the proven optima and greedy energies it
-produced and fails if the package drifts from them.
+`notebook.ipynb`'s original 37 cells (sections 1–12) are byte-for-byte untouched — the
+marks are in and its numbers appear in the report. `tests/test_notebook_parity.py` pins
+the proven optima and greedy energies it produced and fails if the package drifts from
+them. Sections 13–14 were appended (not inserted) after §5.1 and §6 landed, importing the
+`drp` package to demonstrate the stronger bound and the significance testing directly,
+with real executed output — the graded portion stays exactly as marked, and the notebook
+stays current as the project's single narrative entry point.
 
 ### §1.2 Instance and solution formats
 
