@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-delivery-optimization"
+version = "2.0.0"
+description = "Drone delivery routing with load-dependent energy: exact and metaheuristic solvers"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "matplotlib>=3.7"]
+
+[project.optional-dependencies]
+milp = ["pulp>=2.7"]
+schema = ["jsonschema>=4.0"]
+notebook = ["jupyter>=1.0", "pandas>=2.0"]
+dev = ["pytest>=7.0", "pulp>=2.7", "jsonschema>=4.0"]
+
+[project.scripts]
+drp = "drp.app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["drp*"]
+
+[tool.setuptools.package-data]
+"drp.instances" = ["schema/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["slow: long-running tests, deselect with -m 'not slow'"]

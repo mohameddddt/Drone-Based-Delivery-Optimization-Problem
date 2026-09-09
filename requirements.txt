@@ -1,0 +1,16 @@
+# Runtime
+numpy>=1.24
+matplotlib>=3.7
+
+# Formulation 2: the commodity-flow MILP (drp.exact.milp_flow)
+pulp>=2.7
+
+# Validating instance/solution files against their JSON Schemas
+jsonschema>=4.0
+
+# Development
+pytest>=7.0
+
+# To run the graded notebook
+jupyter>=1.0
+pandas>=2.0

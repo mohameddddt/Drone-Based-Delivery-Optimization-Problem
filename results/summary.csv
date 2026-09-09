@@ -1,0 +1,6 @@
+method,instances_solved,avg_energy,avg_time_s,optima_found,n_proven,avg_gap_pct_on_proven
+alns,12,1027.7,24.96,5,5,0.0
+bnb,12,1191.7,12.07,5,5,0.0
+ga,12,1047.7,24.11,5,5,0.0
+greedy,12,1232.1,0.0,0,5,14.22
+sa,12,1103.7,25.0,5,5,0.0

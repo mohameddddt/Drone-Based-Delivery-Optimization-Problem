@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem/schema/drp-instance-v1.json",
+  "title": "drp-instance/v1",
+  "description": "A Drone Routing Problem instance.",
+  "type": "object",
+  "required": ["schema", "n_customers", "fleet", "depot", "customers"],
+  "properties": {
+    "schema": { "const": "drp-instance/v1" },
+    "name": { "type": "string" },
+    "n_customers": { "type": "integer", "minimum": 1 },
+    "geodesic": {
+      "type": "boolean",
+      "description": "If true, coordinates are [lat, lon] and distances are haversine km."
+    },
+    "fleet": {
+      "type": "object",
+      "required": ["n_drones", "payload"],
+      "properties": {
+        "n_drones": { "type": "integer", "minimum": 1 },
+        "payload": { "type": "number", "exclusiveMinimum": 0 },
+        "battery": {
+          "type": ["number", "null"],
+          "description": "Energy budget per drone; null means unbounded."
+        }
+      }
+    },
+    "energy": {
+      "type": "object",
+      "description": "e(d, w) = d * (alpha + beta * w)",
+      "properties": {
+        "alpha": { "type": "number", "exclusiveMinimum": 0 },
+        "beta": { "type": "number", "minimum": 0 }
+      }
+    },
+    "depot": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": { "type": "number" }
+    },
+    "customers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "coord", "demand"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "coord": {
+            "type": "array", "minItems": 2, "maxItems": 2,
+            "items": { "type": "number" }
+          },
+          "demand": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "nofly": {
+      "type": "object",
+      "properties": {
+        "edges": {
+          "description": "Forbidden node pairs, undirected.",
+          "type": "array",
+          "items": {
+            "type": "array", "minItems": 2, "maxItems": 2,
+            "items": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "polygons": {
+          "description": "Simple polygons; legs detour around them.",
+          "type": "array",
+          "items": {
+            "type": "array", "minItems": 3,
+            "items": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "items": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "seed": { "type": ["integer", "null"] }
+  }
+}

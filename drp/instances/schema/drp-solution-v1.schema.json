@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem/schema/drp-solution-v1.json",
+  "title": "drp-solution/v1",
+  "description": "A claimed solution, with enough evidence to verify it without re-solving.",
+  "type": "object",
+  "required": ["schema", "instance", "routes", "certificate"],
+  "properties": {
+    "schema": { "const": "drp-solution/v1" },
+    "instance": { "type": "string" },
+    "method": { "type": ["string", "null"] },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["drone", "customers"],
+        "properties": {
+          "drone": { "type": "integer", "minimum": 0 },
+          "customers": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+          "energy": { "type": ["number", "null"] },
+          "payload": { "type": "number" },
+          "legs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": { "type": "integer" },
+                "to": { "type": "integer" },
+                "distance": { "type": "number" },
+                "onboard": { "type": "number" },
+                "energy": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "required": ["feasible", "total_energy"],
+      "properties": {
+        "feasible": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "total_energy": { "type": "number" },
+        "drones_used": { "type": "integer" },
+        "fleet_size": { "type": "integer" }
+      }
+    },
+    "meta": { "type": "object" }
+  }
+}

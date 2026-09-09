@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # The fast subset: correctness of the model, the Split DP, the bounds and
+      # the formats. Runs on every push and must stay under a couple of minutes.
+      - name: Fast tests
+        run: pytest -q -m "not slow" --durations=10
+
+      - name: CLI smoke test
+        run: |
+          drp generate --n 12 --drones 4 --zones 2 --seed 7 -o /tmp/inst.json
+          drp solve /tmp/inst.json --method alns --time 5 -o /tmp/sol.json
+          drp solve /tmp/inst.json --method bnb --time 5
+          drp export /tmp/sol.json --instance /tmp/inst.json --format geojson -o /tmp/out.geojson
+          drp show /tmp/sol.json --instance /tmp/inst.json -o /tmp/routes.png
+
+      - name: Experiment pipeline smoke test
+        run: |
+          python run_experiments.py --quick
+          python generate_figures.py --time-limit 2
+
+      - name: Upload figures
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: figures
+          path: results/*.png
+          if-no-files-found: warn
+
+  slow:
+    name: brute-force verification
+    runs-on: ubuntu-latest
+    # The exhaustive-enumeration tests are the ones that would catch a silently
+    # wrong "proven optimal", so they run on main and on demand rather than on
+    # every pull request.
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Full suite including brute-force parity
+        run: pytest -q --durations=15
