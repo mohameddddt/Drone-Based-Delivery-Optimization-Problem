@@ -7,15 +7,15 @@ Status of `main`, tracked against the project roadmap. Updated 2026-09-09.
 The graded submission is done and unchanged. This document tracks the work *after*
 that — turning a 37-cell notebook into software other people can use.
 
-**P1 Foundation is complete, and all six roadmap quick wins are done.** P2 (interactive
-visualisation), P4 (real geography, benchmark import, service) and most of P5 are not
-started.
+**P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
+B&B bound is now in too. P2 (interactive visualisation), P4 (real geography, benchmark
+import, service) and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
 | **P2 See it** | ◐ Partial — animated playback ✅; interactive map, B&B tree explorer, SA/GA dashboards, SVG export ✗ |
-| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅; wind ✗, stronger bound ✗, proper statistics ✗ |
+| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅; wind ✗, proper statistics ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
 
@@ -60,7 +60,7 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 
 ### §1.4 Tests
 
-**129 tests.** The ones the roadmap called for specifically:
+**140 tests.** The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -68,7 +68,8 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 | Metamorphic | `test_metamorphic.py` | Reversal is free at `β=0` and generally is not at `β>0`; scaling coordinates by `c` scales energy by `c`. |
 | **Split optimality** | `test_split_optimality.py` | Brute-forces **every** segmentation for small tours; Split matches exactly. |
 | **B&B ground truth** | `test_bnb_ground_truth.py` | Exhaustive enumeration of every partition-into-ordered-routes; B&B matches. |
-| **Bound validity** | `test_bnb_ground_truth.py` | The bound never exceeds the true optimum — checked at 1 ms, 10 ms and 120 s limits. |
+| **Bound validity** | `test_bnb_ground_truth.py`, `test_bounds.py` | Neither bound ever exceeds the true optimum — checked against brute force, and (for the anytime dual bound) at 1 ms, 10 ms and 120 s limits. |
+| **Bound dominance** | `test_bounds.py` | The assignment-relaxation bound is never looser than the column-minimum sum it sits alongside. |
 | Cross-validation | `test_cross_validation.py` | F2 ≤ B&B optimum always; equal when the battery is slack. Now an assertion, not a printout. |
 | Feasibility fuzzing | `test_feasibility_fuzz.py` | 2,400 random solutions judged identically by `is_feasible` and an independently written reference checker. |
 
@@ -108,10 +109,52 @@ correct version materialises each frame's children with their bounds before desc
 on unwinding contributes the ones it never entered. The minimum over that frontier is a
 true lower bound. `test_reported_dual_bound_is_valid` asserts it against brute force.
 
-The bound is *weak* — 66–89% of the interval left unproved on the instances that time out,
-because the column-minimum bound barely grows with `n`. That flatness is exactly why B&B
-stalls near `n = 9`. Strengthening it is §5.1's remaining work; a wide honest interval
-still beats no information at all, and it gives that work a baseline to beat.
+### §5.1 Stronger bound: assignment relaxation
+
+The bound above was *weak* by construction — a plain sum of each customer's cheapest
+entering arc, chosen independently per customer. Nothing stops two customers from
+"sharing" the same cheap predecessor in the bound even though a real route cannot reuse
+an arc, and the bound barely grows with `n` as a result. That flatness was exactly why
+B&B stalled near `n = 9`.
+
+`drp/exact/bounds.py::assignment_completion_bound` replaces it with an assignment-relaxation
+(AP) bound: every unassigned customer, the open route's current tail, and each drone still
+available to start a fresh route are matched via the Hungarian algorithm (`scipy.optimize.
+linear_sum_assignment`) into a globally consistent one-predecessor-one-successor structure.
+It drops subtour elimination, capacity and battery — same as before — but it cannot
+double-book an arc the way the column-minimum sum can, so it strictly dominates it
+(`test_assignment_bound_dominates_column_min`). Per-node cost is O(m³) instead of O(1), so
+`drp/exact/bnb.py` computes the cheap sum first and only calls the Hungarian solve on
+children that survive it — expensive bound, cheap gate.
+
+Measured on the twelve committed instances (20 s each, same seeds as the table below):
+
+| | Old bound | New bound |
+|---|---|---|
+| `S6_n10_k3` nodes to prove optimal | 1,519,663 (9.0 s) | 428,850 (13.9 s) |
+| `S6_n10_k3` proves optimal in 20 s? | ✗ (this is where the old ceiling sat) | ✅ |
+| `S5_n9_k3` nodes to prove optimal | 195,022 | 36,945 |
+| Unproved interval at `n = 25–30` | 86–89% | 72–73% |
+
+The exact-solvable ceiling moves from `n ≈ 9` to `n ≈ 10` — one step, not a leap, because
+the bound is still a relaxation with no subtour elimination. Held–Karp or the LP relaxation
+of the flow formulation remain the path to a bigger jump and are still not done.
+
+**A phantom-return bug this exposed.** Tightening the completion bound broke three ground-truth
+tests: B&B reported "proven optimal" at an energy *above* the true brute-forced optimum on
+`n = 7` — the exact failure mode this project treats as the most serious possible bug, a wrong
+answer with a confident label. The cause pre-dated this bound and was latent in the original
+one too, just never tight enough to trigger it: the "committed cost so far" for the *still-open*
+route was computed with `route_energy`, which bakes in a return-to-depot leg from whichever
+customer currently happens to be last. If the route goes on to take more customers, that leg is
+never actually flown — it's replaced by a longer path through the rest of the route — so
+charging it is phantom cost with no lower-bound justification. Once stacked on a genuinely tight
+completion term, phantom-plus-completion could exceed the true remaining cost and prune the real
+optimum. Fixed by adding `drp.core.energy.route_energy_open` (every real leg except the
+not-yet-flown return) and using it for the open route's running total in the bound, while the
+return leg is charged exactly once — either when a route genuinely closes, or as one of the
+assignment bound's own candidate arcs. `tests/test_bounds.py` now checks this directly, and
+`test_bnb_ground_truth.py` is what caught it in the first place.
 
 ### §4.1 Polygonal no-fly zones
 
@@ -175,7 +218,10 @@ flashes are precisely the conflicts a deconfliction model would have to resolve.
 ## The committed run
 
 12 instances, 5 seeds per metaheuristic, 20 s for B&B and 5 s per metaheuristic seed.
-Wall clock 1037 s. Stored in `results/runs.db` as group `run_20260909_211828`.
+Wall clock 942 s. Stored in `results/runs.db` as group `run_20260909_221514` (superseding
+`run_20260909_211828`, re-run after §5.1's assignment-relaxation bound landed — only the
+B&B column moves; GA/SA/ALNS/Greedy differ from the previous run only by the ordinary
+seed-vs-wall-clock noise of a time-boxed search).
 
 | Instance | n | K | Greedy | B&B | GA | SA | ALNS | Proved? |
 |---|---|---|---|---|---|---|---|---|
@@ -184,60 +230,63 @@ Wall clock 1037 s. Stored in `results/runs.db` as group `run_20260909_211828`.
 | S3_n7_k2 | 7 | 3 | 639.3 | **568.5** | **568.5** | **568.5** | **568.5** | ✓ |
 | S4_n8_k3 | 8 | 3 | 691.5 | **670.5** | **670.5** | **670.5** | **670.5** | ✓ |
 | S5_n9_k3 | 9 | 3 | 740.3 | **593.7** | **593.7** | **593.7** | **593.7** | ✓ |
-| S6_n10_k3 | 10 | 3 | 925.1 | **839.5** | **839.5** | 843.3 | **839.5** | |
-| M1_n12_k4 | 12 | 4 | 1035.7 | 1021.8 | **922.1** | **922.1** | 930.0 | |
-| M2_n15_k4 | 15 | 4 | 1316.1 | 1316.1 | **1011.2** | 1196.8 | **1011.2** | |
-| M3_n18_k5 | 18 | 5 | 1564.5 | 1564.5 | 1306.4 | 1504.1 | **1294.2** | |
-| L1_n20_k5 | 20 | 5 | 1830.5 | 1830.5 | **1435.5** | 1660.0 | 1448.8 | |
-| L2_n25_k6 | 25 | 6 | 2122.1 | 2122.1 | 1861.5 | 1923.5 | **1752.1** | |
-| L3_n30_k6 | 30 | 6 | 2727.7 | 2727.7 | 2318.7 | 2317.0 | **2178.5** | |
+| S6_n10_k3 | 10 | 3 | 925.1 | **839.5** | **839.5** | **839.5** | **839.5** | ✓ |
+| M1_n12_k4 | 12 | 4 | 1035.7 | 984.3 | **922.1** | **922.1** | 930.0 | |
+| M2_n15_k4 | 15 | 4 | 1316.1 | 1100.3 | **1011.2** | **1011.2** | **1011.2** | |
+| M3_n18_k5 | 18 | 5 | 1564.5 | 1564.5 | 1292.5 | 1461.6 | **1281.9** | |
+| L1_n20_k5 | 20 | 5 | 1830.5 | 1830.5 | **1428.3** | 1660.0 | 1451.1 | |
+| L2_n25_k6 | 25 | 6 | 2122.1 | 2122.1 | 1702.4 | 1923.5 | **1686.2** | |
+| L3_n30_k6 | 30 | 6 | 2727.7 | 2727.7 | 2183.8 | 2317.0 | **2055.7** | |
 
 | Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
 |---|---|---|---|---|
-| **ALNS** | **1027.7** | 24.96 | 5/5 | 0.000% |
-| Genetic Algorithm | 1047.7 | 24.11 | 5/5 | 0.000% |
-| Simulated Annealing | 1103.7 | 25.00 | 5/5 | 0.000% |
-| Branch & Bound | 1191.7 | 12.07 | 5/5 | 0.000% |
-| Greedy construction | 1232.1 | 0.00 | 0/5 | 14.220% |
+| **ALNS** | **1011.1** | 22.87 | 6/6 | 0.000% |
+| Genetic Algorithm | 1021.5 | 20.34 | 6/6 | 0.000% |
+| Simulated Annealing | 1084.4 | 23.81 | 6/6 | 0.000% |
+| Branch & Bound | 1170.5 | 11.28 | 6/6 | 0.000% |
+| Greedy construction | 1232.1 | 0.00 | 0/6 | 13.550% |
 
 Findings, all consistent with theory:
 
-- Branch & Bound **proves optimality on `n = 5…9`** and times out from `n = 10`, placing
-  the exact/heuristic crossover at about `n = 9`.
+- Branch & Bound **proves optimality on `n = 5…10`** and times out from `n = 12`, placing
+  the exact/heuristic crossover at about `n = 10` — one instance further than the previous
+  run, and the direct payoff of §5.1's stronger bound: `S6_n10_k3` needed 1.5M nodes and
+  never finished in 20 s under the old bound (see §5.1 above); it now proves optimal in
+  429K nodes and 13.8 s.
 - **All three metaheuristics find every proven optimum**, at 0.000% gap. Greedy finds none,
-  averaging 14.2% above.
+  averaging 13.6% above.
 - **No metaheuristic ever returns below a proven optimum.** The project's main correctness
   check.
 - **ALNS has the best average energy** and wins outright on `M3`, `L2` and `L3`. GA edges it
-  on `M1` and `L1`, so the two are close; both clearly beat SA at scale.
-- From `n = 15` up, B&B's value equals greedy's exactly — it is returning its warm-start
-  incumbent, having proved nothing.
+  on `M1`, `M2` and `L1`, so the two are close; both clearly beat SA at scale.
+- From `n = 18` up, B&B's value still equals greedy's exactly — it is returning its
+  warm-start incumbent, having proved nothing. At `n = 12` and `15` it no longer does: the
+  stronger bound's tighter node ordering finds a real incumbent (`M1`: 984.3 vs greedy's
+  1035.7; `M2`: 1100.3 vs 1316.1) even where it can't yet prove it optimal.
 
 ### What the dual bound actually says
 
 | Instance | Incumbent | Dual bound | Unproved interval |
 |---|---|---|---|
-| S1–S5 (`n ≤ 9`) | = optimum | = optimum | **0.0%** — proved |
-| S6_n10_k3 | 839.5 | 280.4 | 66.6% |
-| M1_n12_k4 | 1021.8 | 228.9 | 77.6% |
-| M2_n15_k4 | 1316.1 | 281.5 | 78.6% |
-| M3_n18_k5 | 1564.5 | 279.2 | 82.2% |
-| L1_n20_k5 | 1830.5 | 267.2 | 85.4% |
-| L2_n25_k6 | 2122.1 | 293.0 | 86.2% |
-| L3_n30_k6 | 2727.7 | 294.7 | 89.2% |
+| S1–S6 (`n ≤ 10`) | = optimum | = optimum | **0.0%** — proved |
+| M1_n12_k4 | 984.3 | 412.6 | 58.1% |
+| M2_n15_k4 | 1100.3 | 522.4 | 52.5% |
+| M3_n18_k5 | 1564.5 | 567.5 | 63.7% |
+| L1_n20_k5 | 1830.5 | 636.1 | 65.3% |
+| L2_n25_k6 | 2122.1 | 564.6 | 73.4% |
+| L3_n30_k6 | 2727.7 | 743.4 | 72.7% |
 
-These gaps are **wide, and that is the honest finding.** The lower bound sits near 230–295
-regardless of instance size, because the column-minimum bound barely grows with `n`. That
-flatness *is* the `n ≈ 9` ceiling, made visible. A wide honest interval beats the previous
-situation — a timed-out run handing back its greedy warm start with no indication that it
-had proved nothing at all. Tightening it is roadmap §5.1, and now there is a baseline to
-measure the improvement against.
+Tighter than the column-minimum bound's 66.6–89.2% across the same instances (previous
+table, now superseded), but still **wide, and that is the honest finding.** The
+assignment-relaxation bound drops subtour elimination entirely, so it still grows slowly
+with `n`. These gaps are what a Held–Karp or LP-relaxation bound (still not done, see
+"Not done" below) would need to close further.
 
 ## Verified
 
 Everything below was executed, not assumed.
 
-- **129 tests pass** — 112 fast (~50 s), 17 slow (~90 s).
+- **140 tests pass** — 123 fast (~35 s), 17 slow (~45 s).
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -252,6 +301,11 @@ Everything below was executed, not assumed.
 
 ### Bugs found and fixed while building this
 
+- **Phantom return-leg in the B&B bound** (described above under §5.1) — a latent flaw
+  present since the original bound, exposed once the completion term got tight enough to
+  combine with it into an over-tight total. B&B reported "proven optimal" at an energy
+  above the true brute-forced optimum on `n = 7` — the single worst failure mode this
+  project defines. Caught by `test_bnb_ground_truth.py`.
 - **Invalid dual bound** (described above) — would have reported lower bounds above the
   true optimum on timed-out runs.
 - **ALNS converging to the wrong place** (described above) — three separate causes, the
@@ -290,7 +344,7 @@ Listed so nothing looks finished that isn't.
 | §3.x | Scenario builder, geocoding, OSM basemaps, CVRPLIB/Solomon import, QGC export | Nothing started. Haversine distances exist (`geodesic=True`) but no importer uses them |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |
 | §4.3–4.8 | Climb/hover energy, time windows, multi-trip, deconfliction, uncertainty, multi-objective | P5 |
-| §5.1 | Held–Karp / LP / column-generation bounds | The current bound is why `n ≈ 9` is the ceiling |
+| §5.1 | Held–Karp / LP / column-generation bounds | Assignment-relaxation bound landed and moved the ceiling from `n ≈ 9` to `n ≈ 10`; a subtour-eliminating bound (Held–Karp 1-tree, LP relaxation) is the remaining, bigger step |
 | §5.2 | Tabu, VNS, memetic GA, ACO, island model | Only ALNS added |
 | §5.3–5.4 | Learned methods; Numba/Rust performance | Not started |
 | §6 | Wilcoxon/Friedman tests, confidence intervals, performance profiles, ablations | **Only means and bests are reported.** No significance testing — the current comparisons are descriptive, not statistically supported |
@@ -324,8 +378,10 @@ Still unanswered, and they change what to build next:
 5. **Fidelity** — how physically accurate should the energy model get before extra realism
    stops changing the optimisation conclusions?
 
-My read: **§5.1's stronger bound is the highest-value next item.** The `n ≈ 9` ceiling is
-the single most limiting fact about the project, it is what makes the B&B column look bad
-in every table, and a Held–Karp or LP bound would move it materially. §6's statistics are a
-close second — the current tables report bests and means with no significance testing, which
-is the weakest part of the experimental story.
+My read: §5.1's assignment-relaxation bound is in and moved the ceiling from `n ≈ 9` to
+`n ≈ 10` — real, but one step, because the relaxation still has no subtour elimination.
+**§6's statistics are now the highest-value next item**: the current tables report bests
+and means with no significance testing, which is the weakest part of the experimental
+story and doesn't require the harder Held–Karp/LP work to land. A Held–Karp 1-tree or the
+flow formulation's LP relaxation remains the path to a bigger jump past `n ≈ 10` whenever
+that becomes the priority again.

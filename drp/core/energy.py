@@ -41,6 +41,30 @@ def route_energy(inst: DRPInstance, route: Sequence[int]) -> float:
     """
     if not route:
         return 0.0
+    e = route_energy_open(inst, route)
+    if math.isinf(e):
+        return math.inf
+    # the return leg is flown empty
+    e_return = leg_energy(inst, route[-1], 0, 0.0)
+    if math.isinf(e_return):
+        return math.inf
+    return e + e_return
+
+
+def route_energy_open(inst: DRPInstance, route: Sequence[int]) -> float:
+    """Energy flown so far along a route that is still open -- every real leg
+    *except* the not-yet-flown return to depot.
+
+    For a route still being extended, `route_weight` (and so `onboard`) can
+    only grow as more customers are appended, so this under-states rather
+    than over-states the true cost already committed. That direction matters:
+    it is what lets `drp.exact.bnb` use this as one term of a valid lower
+    bound instead of `route_energy`'s complete-route figure, which bakes in a
+    return leg from the *current* last stop that a route still being extended
+    will not actually fly.
+    """
+    if not route:
+        return 0.0
     onboard = route_weight(inst, route)
     total = 0.0
     prev = 0
@@ -51,11 +75,7 @@ def route_energy(inst: DRPInstance, route: Sequence[int]) -> float:
         total += e
         onboard -= inst.demand[c]
         prev = c
-    # the return leg is flown empty
-    e = leg_energy(inst, prev, 0, onboard)
-    if math.isinf(e):
-        return math.inf
-    return total + e
+    return total
 
 
 def route_energy_trace(inst: DRPInstance, route: Sequence[int]) -> List[dict]:
