@@ -1,0 +1,144 @@
+{
+  "metric": "mean_gap_pct",
+  "alpha": 0.05,
+  "n_instances": 12,
+  "methods": [
+    "greedy",
+    "bnb",
+    "ga",
+    "sa",
+    "alns"
+  ],
+  "method_ci": {
+    "greedy": {
+      "mean": 19.376833333333337,
+      "lo": 13.798004166666669,
+      "hi": 24.7696125
+    },
+    "bnb": {
+      "mean": 10.359083333333333,
+      "lo": 3.6435833333333334,
+      "hi": 17.55488333333333
+    },
+    "ga": {
+      "mean": 1.5995833333333334,
+      "lo": 0.3388333333333333,
+      "hi": 3.34128125
+    },
+    "sa": {
+      "mean": 5.283166666666666,
+      "lo": 1.4153333333333336,
+      "hi": 9.347568749999997
+    },
+    "alns": {
+      "mean": 0.81025,
+      "lo": 0.25458333333333333,
+      "hi": 1.4880895833333332
+    }
+  },
+  "friedman": {
+    "statistic": 31.74468085106384,
+    "p_value": 2.1572747868389013e-06,
+    "avg_ranks": {
+      "greedy": 4.833333333333333,
+      "bnb": 3.3333333333333335,
+      "ga": 2.1666666666666665,
+      "sa": 2.5833333333333335,
+      "alns": 2.0833333333333335
+    },
+    "critical_difference": 1.76077078509873,
+    "n_instances": 12
+  },
+  "pairwise": [
+    {
+      "a": "greedy",
+      "b": "bnb",
+      "n": 12,
+      "statistic": 0.0,
+      "p_value": 0.0078125,
+      "better": "bnb",
+      "significant": true
+    },
+    {
+      "a": "greedy",
+      "b": "ga",
+      "n": 12,
+      "statistic": 0.0,
+      "p_value": 0.00048828125,
+      "better": "ga",
+      "significant": true
+    },
+    {
+      "a": "greedy",
+      "b": "sa",
+      "n": 12,
+      "statistic": 0.0,
+      "p_value": 0.00048828125,
+      "better": "sa",
+      "significant": true
+    },
+    {
+      "a": "greedy",
+      "b": "alns",
+      "n": 12,
+      "statistic": 0.0,
+      "p_value": 0.00048828125,
+      "better": "alns",
+      "significant": true
+    },
+    {
+      "a": "bnb",
+      "b": "ga",
+      "n": 12,
+      "statistic": 0.0,
+      "p_value": 0.03125,
+      "better": "ga",
+      "significant": true
+    },
+    {
+      "a": "bnb",
+      "b": "sa",
+      "n": 12,
+      "statistic": 6.0,
+      "p_value": 0.03125,
+      "better": "sa",
+      "significant": true
+    },
+    {
+      "a": "bnb",
+      "b": "alns",
+      "n": 12,
+      "statistic": 6.0,
+      "p_value": 0.03125,
+      "better": "alns",
+      "significant": true
+    },
+    {
+      "a": "ga",
+      "b": "sa",
+      "n": 12,
+      "statistic": 15.0,
+      "p_value": 0.1875,
+      "better": "ga",
+      "significant": false
+    },
+    {
+      "a": "ga",
+      "b": "alns",
+      "n": 12,
+      "statistic": 23.0,
+      "p_value": 0.515625,
+      "better": "alns",
+      "significant": false
+    },
+    {
+      "a": "sa",
+      "b": "alns",
+      "n": 12,
+      "statistic": 15.0,
+      "p_value": 0.140625,
+      "better": "alns",
+      "significant": false
+    }
+  ]
+}

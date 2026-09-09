@@ -66,6 +66,13 @@ def instance_rows(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 best = rec.get(f"{method}_best")
                 rec[f"{method}_gap_pct"] = (
                     None if best is None else round(100.0 * (best - ref) / ref, 3))
+                mean = rec.get(f"{method}_mean")
+                # Gap of the *mean* over seeds, not the best -- the quantity
+                # roadmap §6's significance tests compare, since "best of 5
+                # seeds" is an optimistic, high-variance statistic and a poor
+                # basis for a paired test across a stochastic method.
+                rec[f"{method}_mean_gap_pct"] = (
+                    None if mean is None else round(100.0 * (mean - ref) / ref, 3))
 
         out.append(rec)
 
