@@ -488,6 +488,33 @@ right now, which is exactly the myopia that traps greedy insertion. The adaptive
 weights then concentrate effort on whichever destroy/repair pair is working on
 this instance, so the method tunes itself rather than needing tuning.
 
+\subsection{Statistical significance}
+\label{sec:significance}
+
+The tables above report means and bests with no indication of whether a
+difference would survive a different set of seeds. The table below adds that:
+a Friedman test across all five methods (ranked by mean gap-to-reference per
+instance, ties averaged), its Nemenyi post-hoc critical difference, and a
+Wilcoxon signed-rank test for every pair, paired by instance.
+
+\begin{center}
+\small
+\input{significance_table.tex}
+\end{center}
+
+The Friedman test rejects equal performance across the five methods
+decisively. Greedy and Branch \& Bound are each significantly worse than every
+metaheuristic ($p \le 0.032$, Wilcoxon) --- exactly the crossover-and-timeout
+story of section~\ref{sec:results} restated with a $p$-value instead of an
+equal-looking number in a table. The honest finding is the other side of it:
+\textbf{GA, SA and ALNS are \emph{not} pairwise significant from one another}
+at $n = 12$ instances ($p \ge 0.14$ throughout). ALNS has the lowest mean gap
+and the lowest average rank, but with only twelve paired observations that
+is a trend the data supports, not a claim the data proves. A larger instance
+set is the direct way to sharpen this; the current benchmark suite was sized
+for the exact/heuristic crossover in section~\ref{sec:results}, not for
+statistical power among the metaheuristics.
+
 \subsection{Why the Split decoder is the important component}
 
 Both metaheuristics owe most of their quality to the Split DP of

@@ -1,6 +1,6 @@
 # Project progress
 
-Status of `main`, tracked against the project roadmap. Updated 2026-09-09.
+Status of `main`, tracked against the project roadmap. Updated 2026-09-10.
 
 ## Where this stands
 
@@ -8,14 +8,14 @@ The graded submission is done and unchanged. This document tracks the work *afte
 that — turning a 37-cell notebook into software other people can use.
 
 **P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
-B&B bound is now in too. P2 (interactive visualisation), P4 (real geography, benchmark
-import, service) and most of P5 are not started.
+B&B bound and §6's significance testing are now in too. P2 (interactive visualisation),
+P4 (real geography, benchmark import, service) and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
 | **P2 See it** | ◐ Partial — animated playback ✅; interactive map, B&B tree explorer, SA/GA dashboards, SVG export ✗ |
-| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅; wind ✗, proper statistics ✗ |
+| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
 
@@ -60,7 +60,7 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 
 ### §1.4 Tests
 
-**140 tests.** The ones the roadmap called for specifically:
+**159 tests.** The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -72,6 +72,7 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 | **Bound dominance** | `test_bounds.py` | The assignment-relaxation bound is never looser than the column-minimum sum it sits alongside. |
 | Cross-validation | `test_cross_validation.py` | F2 ≤ B&B optimum always; equal when the battery is slack. Now an assertion, not a printout. |
 | Feasibility fuzzing | `test_feasibility_fuzz.py` | 2,400 random solutions judged identically by `is_feasible` and an independently written reference checker. |
+| **Significance machinery** | `test_stats.py` | Nemenyi CD reproduces Demšar's published table exactly for `k = 2..10`; a synthetic consistently-better method is detected as significant, a method compared against itself is not; bootstrap CI brackets a known mean. |
 
 Bound validity deserves its billing: a bound that overestimates prunes the branch holding
 the optimum, and the search then reports a **wrong answer labelled "proven optimal"**.
@@ -257,8 +258,10 @@ Findings, all consistent with theory:
   averaging 13.6% above.
 - **No metaheuristic ever returns below a proven optimum.** The project's main correctness
   check.
-- **ALNS has the best average energy** and wins outright on `M3`, `L2` and `L3`. GA edges it
-  on `M1`, `M2` and `L1`, so the two are close; both clearly beat SA at scale.
+- **ALNS has the best average energy** and wins outright on `M3`, `L2` and `L3`. GA ties or
+  edges it on `M1`, `M2` and `L1`, so the two are close — close enough that, as the
+  significance section below shows, twelve instances cannot distinguish them statistically.
+  Both clearly beat SA at scale.
 - From `n = 18` up, B&B's value still equals greedy's exactly — it is returning its
   warm-start incumbent, having proved nothing. At `n = 12` and `15` it no longer does: the
   stronger bound's tighter node ordering finds a real incumbent (`M1`: 984.3 vs greedy's
@@ -282,11 +285,58 @@ assignment-relaxation bound drops subtour elimination entirely, so it still grow
 with `n`. These gaps are what a Held–Karp or LP-relaxation bound (still not done, see
 "Not done" below) would need to close further.
 
+### §6 Statistical significance
+
+Every table above reports means and bests with no indication of whether a difference is
+real or seed noise. `drp/eval/stats.py` adds the standard machinery for comparing several
+stochastic solvers over a shared benchmark suite (Demšar 2006): a **Wilcoxon signed-rank
+test**, paired by instance, for every pair of methods; a **Friedman test** across all
+methods at once with its **Nemenyi** post-hoc critical difference; and **bootstrap
+confidence intervals** on each method's average gap. The compared metric is
+`{method}_mean_gap_pct` — the gap of the *mean over seeds* to the per-instance reference,
+not the best-of-seeds figure the leaderboard uses, because best-of-`n` is optimistic and
+high-variance and a poor basis for a paired test. `run_experiments.py` now writes
+`results/significance.json` and `report/significance_table.tex` alongside the existing
+tables, and `report/report.tex` §"Statistical significance" reads from it.
+
+Run on the committed group (`run_20260909_221514`, 12 instances, `alpha = 0.05`):
+
+| Method | Avg. rank | Mean gap % [95% CI] |
+|---|---|---|
+| ALNS | 2.08 | 0.81 [0.25, 1.49] |
+| Genetic Algorithm | 2.17 | 1.60 [0.34, 3.34] |
+| Simulated Annealing | 2.58 | 5.28 [1.42, 9.35] |
+| Branch & Bound | 3.33 | 10.36 [3.64, 17.55] |
+| Greedy construction | 4.83 | 19.38 [13.80, 24.77] |
+
+Friedman: χ² = 31.74, p = 2.16 × 10⁻⁶, Nemenyi CD (α = 0.05) = 1.761.
+
+The Friedman test rejects equal performance decisively — unsurprising, since it is
+dominated by greedy and timed-out B&B trailing badly. Pairwise Wilcoxon confirms exactly
+that shape: greedy and B&B are each significantly worse than every metaheuristic (p ≤
+0.032), restating the crossover-and-timeout story with a p-value instead of an
+equal-looking table entry. **The honest finding is on the other side of it: GA, SA and
+ALNS are not pairwise significant from one another** (p ≥ 0.14 throughout, n = 12). ALNS
+has the best mean gap and rank, and that is a real trend the data supports — but twelve
+paired observations is not enough to call it proven. This is exactly the gap §6 was
+scoped to close, and closing it fully needs a larger instance set (more statistical power
+among the three metaheuristics), not more testing machinery — the machinery is now in
+place and will sharpen automatically whenever the benchmark suite grows.
+
+`tests/test_stats.py` checks the machinery itself: the Nemenyi CD reproduces Demšar's
+published table exactly (not just approximately) for `k = 2..10`, a synthetic
+consistently-better method is correctly detected as significant while a method compared
+against itself is not, and the bootstrap CI brackets a known mean.
+
+**Not built**: performance profiles (Dolan–Moré), ECDF of solution quality, time-to-target
+curves, anytime curves, ablation studies and instance-hardness correlation are still open
+— §6's significance-testing half is done, its profiling/ablation half is not.
+
 ## Verified
 
 Everything below was executed, not assumed.
 
-- **140 tests pass** — 123 fast (~35 s), 17 slow (~45 s).
+- **159 tests pass** — 142 fast (~35 s), 17 slow (~45 s).
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -298,6 +348,8 @@ Everything below was executed, not assumed.
 - The CLI runs generate → solve → show → animate → export end to end.
 - `report/report.tex` passes a structural check; all `\input` and `\includegraphics`
   targets are produced by the pipeline.
+- The Nemenyi critical difference reproduces Demšar (2006)'s published table exactly for
+  `k = 2..10` methods, not just approximately.
 
 ### Bugs found and fixed while building this
 
@@ -347,7 +399,7 @@ Listed so nothing looks finished that isn't.
 | §5.1 | Held–Karp / LP / column-generation bounds | Assignment-relaxation bound landed and moved the ceiling from `n ≈ 9` to `n ≈ 10`; a subtour-eliminating bound (Held–Karp 1-tree, LP relaxation) is the remaining, bigger step |
 | §5.2 | Tabu, VNS, memetic GA, ACO, island model | Only ALNS added |
 | §5.3–5.4 | Learned methods; Numba/Rust performance | Not started |
-| §6 | Wilcoxon/Friedman tests, confidence intervals, performance profiles, ablations | **Only means and bests are reported.** No significance testing — the current comparisons are descriptive, not statistically supported |
+| §6 | Performance profiles, ECDF, time-to-target/anytime curves, ablations, instance-hardness correlation | Wilcoxon/Friedman+Nemenyi significance testing and bootstrap CIs landed (`drp/eval/stats.py`); the profiling and ablation half of §6 is still not started |
 | §7–8 | REST API, Docker, simulator, docs site | Not started |
 
 ### Two honest caveats
@@ -379,9 +431,13 @@ Still unanswered, and they change what to build next:
    stops changing the optimisation conclusions?
 
 My read: §5.1's assignment-relaxation bound is in and moved the ceiling from `n ≈ 9` to
-`n ≈ 10` — real, but one step, because the relaxation still has no subtour elimination.
-**§6's statistics are now the highest-value next item**: the current tables report bests
-and means with no significance testing, which is the weakest part of the experimental
-story and doesn't require the harder Held–Karp/LP work to land. A Held–Karp 1-tree or the
-flow formulation's LP relaxation remains the path to a bigger jump past `n ≈ 10` whenever
-that becomes the priority again.
+`n ≈ 10` — real, but one step, because the relaxation still has no subtour elimination. §6's
+Wilcoxon/Friedman/Nemenyi significance testing is in too, and its headline result is itself
+an answer to question 1: **GA, SA and ALNS are not pairwise distinguishable at `n = 12`
+instances**, so the confident "ALNS wins" language elsewhere in this document is a trend,
+not a proven claim. Closing that needs a larger instance set for statistical power, which
+is §3.3's benchmark-library import (CVRPLIB/Solomon) doing double duty — it would answer
+question 1 (compete on literature instances) *and* give §6 the sample size it's missing,
+probably more efficiently than generating more synthetic instances would. A Held–Karp
+1-tree or the flow formulation's LP relaxation remains the path to a bigger jump past
+`n ≈ 10` whenever the exact side becomes the priority again.
