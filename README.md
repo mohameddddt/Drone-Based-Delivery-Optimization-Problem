@@ -8,7 +8,7 @@ distance-VRP.
 
 Ships with two mathematical formulations, an NP-hardness proof, an exact Branch & Bound
 with an anytime dual bound, three metaheuristics, visibility-graph routing around polygonal
-no-fly zones, a reproducible benchmark generator, an experiment harness, and 235 tests
+no-fly zones, a reproducible benchmark generator, an experiment harness, and 280 tests
 including brute-force verification of the pieces everything else rests on.
 
 ```bash
@@ -21,8 +21,9 @@ drp show plan.json --instance city.json -o routes.png --web flight.html
 
 `flight.html` opens directly in a browser — a pan/zoom map with the fleet flying the
 solution on one clock. **[docs/VISUALISATION.md](docs/VISUALISATION.md)** is the runnable
-guide to that page and to every other view: the static plot, the animated GIF, and the
-Branch & Bound search-tree explorer (`drp tree`).
+guide to that page and to every other view: the static plot, the animated GIF, the Branch &
+Bound search-tree explorer (`drp tree`), and the GA/SA/ALNS convergence dashboard
+(`drp dash`).
 
 ## Contents
 
@@ -131,12 +132,13 @@ drp/
   geometry/    distance · nofly (polygons) · visibility (detour routing)
   instances/   generator · io (JSON formats) · schema/
   exact/       bnb (+ dual bound) · bounds · milp_flow (Formulation 2)
-  meta/        encoding · split · construct · ga · sa · alns
+  meta/        encoding · split · construct · ga · sa · alns · trace
   eval/        runner · store (SQLite) · metrics
   viz/         static · animate · webdata/webplayback (flight replay)
-               treedata/webtree (B&B tree explorer) · web/ (page templates)
+               treedata/webtree (B&B tree explorer)
+               dashdata/webdash (convergence dashboard) · web/ (page templates)
   app/         cli
-tests/         235 tests, incl. brute-force verification
+tests/         280 tests, incl. brute-force verification
 report/        report.tex + generated tables
 results/       runs.db, CSVs, figures
 data/source/   the supplied last-mile coordinate dataset
@@ -158,13 +160,14 @@ drp bench    --suite default --time 5 --seeds 1-5
 drp show     sol.json --instance inst.json -o routes.png --animate flight.gif
 drp show     sol.json --instance inst.json --web flight.html
 drp tree     inst.json --time 20 -o tree.html
+drp dash     inst.json --methods ga,sa,alns --time 5 -o dash.html
 drp export   sol.json --instance inst.json --format geojson -o routes.geojson
 ```
 
 `drp` is installed by `pip install -e .`; `python -m drp.app` works without installing.
 
-The two HTML views — the flight replay and the B&B tree explorer — are each a single
-self-contained file that opens in a browser with no server.
+The three HTML views — the flight replay, the B&B tree explorer and the convergence
+dashboard — are each a single self-contained file that opens in a browser with no server.
 **[docs/VISUALISATION.md](docs/VISUALISATION.md)** documents both, including the controls,
 which parameters change the output, and what the separation number does and does not mean.
 
@@ -230,9 +233,9 @@ pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 See **[PROGRESS.md](PROGRESS.md)** for what is done, what is verified, and what is not —
 tracked against the project roadmap. In short: **P1 Foundation is complete**, along with
 all six roadmap quick wins and the results store. P2's interactive views are in — the
-flight replay and the B&B search-tree explorer, both documented in
-[docs/VISUALISATION.md](docs/VISUALISATION.md) — while the SA/GA dashboards and SVG export
-are not. P4 real geography and P5 research extensions are not started.
+flight replay, the B&B search-tree explorer and the metaheuristic convergence dashboard,
+all documented in [docs/VISUALISATION.md](docs/VISUALISATION.md) — while SVG export is not.
+P4 real geography and P5 research extensions are not started.
 
 ## Building the report
 

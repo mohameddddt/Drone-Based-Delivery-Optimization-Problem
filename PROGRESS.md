@@ -10,17 +10,17 @@ that — turning a 37-cell notebook into software other people can use.
 **P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
 B&B bound and §6's significance testing are now in too. §2.2's playback has been rebuilt
 as an interactive GSAP web page, and then rebuilt again around a real pan/zoom map after a
-browser-driven design review. **§2.4's B&B tree explorer is in**, along with the trace
+browser-driven design review. **§2.4 is complete**: the B&B tree explorer, the trace
 instrumentation it needed — which also unblocked **Solver Vision** in the flight replay,
-the one feature the brief asked for that had been deliberately left out. Every view is now
-documented in [docs/VISUALISATION.md](docs/VISUALISATION.md). P2's remaining pieces (SA/GA
-dashboards, SVG export), P4 (real geography, benchmark import, service) and most of P5 are
-not started.
+the one feature the brief asked for that had been deliberately left out — and the
+**GA/SA/ALNS convergence dashboard**. Every view is documented in
+[docs/VISUALISATION.md](docs/VISUALISATION.md). P2's remaining piece (SVG export), P4 (real
+geography, benchmark import, service) and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, visualisation guide ✅; SA/GA dashboards, SVG export ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, visualisation guide ✅; SVG export ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
@@ -422,10 +422,95 @@ complete assignment is never below any bound on the way down to it. Tightening t
 charge that arc would change `nodes_explored` and the committed run's numbers, so it was
 left alone and written down instead.
 
+### §2.4 Convergence dashboard
+
+```
+drp dash inst.json --methods ga,sa,alns --time 5 -o dash.html --reference 10
+```
+
+The other half of §2.4. All three metaheuristics already carried
+`history: List[float]` — best-so-far, subsampled — which is enough to draw a monotone
+staircase and nothing else. `drp/meta/trace.py` adds one shared trace shape for all three,
+on the same terms as the B&B trace: opt-in, off by default, one guard per site.
+
+What `history` could not show, and now does:
+
+- **SA** looks like SA because of the *working* solution wandering above the best-so-far,
+  and the temperature driving how far it may wander. Both are recorded, reheats marked.
+- **ALNS** is adaptive, and the thing worth watching is the operator weights moving as it
+  learns. Only the *final* weights were reported; now one record per weight update carries
+  the weights, the draw counts and the scores that produced them.
+- **GA** is a population, and a best-of-generation line says nothing about whether it
+  converged or collapsed. Samples carry population mean and spread — over the *feasible*
+  members only, since Split returns `inf` for a tour no fleet can serve and one `inf` would
+  swallow the mean.
+
+**Bounded by decimation, not truncation.** A 5 s SA run does ~8,700 iterations. The tracer
+keeps every stride-th step and, when the buffer fills, drops every second sample and
+doubles the stride — so the buffer is a *uniform* sample of the whole run at all times, at
+O(1) amortised cost. Truncating to the first N points instead would show the opening of the
+search and nothing after it, which for a convergence curve is the one useless shape.
+Improvements and reheats are recorded separately and in full, so no marker is ever dropped.
+
+**Where the invariance claim actually falls.** For a **fixed** iteration/generation budget
+the trace changes nothing — same solution, energy, history and counters, asserted for all
+three across three seeds. Under a **wall-clock** limit it is not true and is not claimed:
+recording costs time, so fewer iterations fit, exactly as any other overhead would. That is
+why `bench` and `compare` leave it off, and why every invariance test pins a fixed budget
+and a generous clock.
+
+**The page** puts all three methods on one pair of axes, which needs two things handled
+rather than assumed. Wall-clock seconds is the default x-axis, because one GA generation
+evaluates `pop_size` tours and one SA iteration evaluates one; the step axis is still
+offered and is labelled *not comparable across methods* when selected. And the vertical
+range fits the best-so-far curves rather than everything — an SA working solution wanders
+far above every answer, and a range containing it squashed all three bests into a band a
+few pixels tall, which was the one thing the chart existed to show.
+
+`--reference SECONDS` runs B&B too and draws a floor. If B&B proves optimality that floor
+is the optimum; if it does not, the floor is its **dual bound** and is labelled as such,
+because an unproven incumbent is not a floor and drawing it as one would misstate what is
+known.
+
+### §2.4 What the dashboard found about SA
+
+The first thing the view was pointed at, it answered — which is the point of building it.
+
+On the n=14 worked example SA reports 1214.7 against GA's 1095.4 and ALNS's 1119.5, and its
+panel reads **`Improvements on the start: 0`**. It never beat the greedy warm start it was
+handed, in 8,700 iterations.
+
+That is not a one-instance accident. Measured at a 3 s budget, warm-started from
+`best_construction`, improvement counts summed over seeds 1–3:
+
+| Instance | Warm start | SA best | SA improvements | ALNS | GA |
+|---|---|---|---|---|---|
+| n=10, K=3 | 954.0 | **851.2** | 16 | 851.2 | 851.2 |
+| n=14, K=4 | 1155.5 | 1085.8 | 2 | 1029.8 | 1029.8 |
+| n=20, K=5 | 2200.7 | 1843.7 | 1 | 1700.4 | 1680.6 |
+| n=25, K=6 | 2299.3 | 2085.7 | 0 | 1959.8 | 1919.2 |
+
+At n=10 SA matches ALNS and GA exactly. By n=25 it makes no improvement at all, and the gap
+to the other two is ~7%.
+
+The temperature panel shows the likely mechanism. `solve_sa` calibrates `T0` once from 60
+random-neighbour deltas so early acceptance is ~0.8, then cools at `gamma=0.9995`. Over
+8,700 iterations that would take `T` to about 1.3% of `T0` — cold enough to consolidate.
+It does not get there: `reheat_after=4000` fires twice in a 5 s run, and each reheat resets
+`T` to `T0 * 0.5` *and* throws the working solution back to the incumbent. The trace ends
+at `T ≈ 235` against energies around 1,200, i.e. still accepting almost anything. SA spends
+the whole budget in a near-random walk and never gets to exploit.
+
+**Not changed here, deliberately.** Retuning `gamma`, `reheat_after` or the calibration
+would move `SAResult` on every instance, and the committed run's numbers and
+`test_notebook_parity.py` are pinned to the current behaviour. It is written down as a
+measured finding with a mechanism, and belongs with §6's ablations rather than in a
+visualisation change.
+
 ### §2.4 What the browser found this time
 
-Five bugs, none of which were visible in the source and all of which were obvious on
-screen — the same lesson as §2.2:
+Eight things, none visible in the source and all obvious on screen — the same lesson as
+§2.2. **In the tree explorer:**
 
 1. **The tree rendered as a black mass with no nodes in it.** Every node's incoming edge
    lived inside that node's own `<g>`, so each later edge painted over every earlier
@@ -450,10 +535,26 @@ screen — the same lesson as §2.2:
    back to the range of bounds actually recorded, and the legend prints both ends as
    numbers and says which it is showing.
 
-And one found by writing the guide rather than the code: **neither page degrades when its
-CDN is unreachable — it does not render at all.** Every element on both pages is built by
-their script and that script needs GSAP, so an offline user got a shell of empty panels and
-no explanation. Both pages now detect the missing library and say what happened.
+**In the convergence dashboard**, all three about the vertical axis, which turns out to be
+where a multi-method chart goes wrong:
+
+6. **All three answers squashed into an illegible band.** The y-range contained SA's
+   working solution, which wanders far above every best-so-far curve — so the curves the
+   chart exists to compare occupied a few pixels at the bottom. The range now fits the
+   best-so-far series, working solutions are clipped, and the page names the curves it
+   clipped rather than letting the legend promise a line the reader cannot find.
+7. **The reference floor spent half the plot proving a gap.** On a hard instance B&B's
+   dual bound sits far below every method, and including it in the range left ~55% of the
+   chart empty. In `fit best` it is now an edge marker plus a per-method gap percentage —
+   a number is the better way to read that gap; `fit all` still gives it the axis.
+8. **Every readout said `–` at the natural starting position.** The x-domain began at 0
+   but the first sample lands a few milliseconds in, so pressing `Home` landed in a sliver
+   where no method had produced a sample. The domain starts at the first real sample now.
+
+And one found by writing the guide rather than the code: **none of the pages degrades when
+its CDN is unreachable — they do not render at all.** Every element is built by their
+script and that script needs GSAP, so an offline user got a shell of empty panels and no
+explanation. All three now detect the missing library and say what happened.
 
 ### §2.4 Coverage
 
@@ -469,10 +570,17 @@ every leg it can be asked to draw and detours where the distance matrix detours,
 derived dual-bound series lands on the solver's own, and Solver Vision never reports an
 option that was taken.
 
-**235 tests.** Still no browser test harness, so none of the JavaScript above is covered by
-CI; the five bugs listed were found by driving the pages in Playwright by hand. That
-remains the obvious next hardening step, and it is now overdue for two pages rather than
-one.
+`tests/test_meta_trace.py` (33 tests) does the same for the metaheuristic traces —
+fixed-budget invariance for all three, ordering and end-state, every improvement recorded
+as an event, SA's temperature falling except where it reheats, ALNS's final segment
+matching the weights the solver reports, and decimation staying uniform and never dropping
+an event. `tests/test_viz_dash.py` (12 tests) covers the dashboard payload: the shared axis
+limits contain every series, the three numbers that must agree do, and no method may report
+an energy below a proven optimum.
+
+**280 tests.** Still no browser test harness, so none of the JavaScript above is covered by
+CI; the bugs listed were found by driving the pages in Playwright by hand. That remains the
+obvious next hardening step, and it is now overdue for three pages rather than one.
 
 ---
 
@@ -653,7 +761,7 @@ Listed so nothing looks finished that isn't.
 |---|---|---|
 | §2.1 | Interactive 2D map, drag-and-drop what-if | Needs a web front end |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
-| §2.4 | SA/GA convergence dashboards | The B&B tree explorer is built; GA/SA/ALNS already carry a `history` trace and ALNS reports final operator weights, so these need almost no new instrumentation — only per-segment weights to animate ALNS adaptation |
+| §2.4 | — | **Done.** B&B tree explorer, Solver Vision and the GA/SA/ALNS convergence dashboard are all in |
 | §2.5 | SVG/TikZ export, colour-blind-safe theme | Figures are PNG only |
 | §3.x | Scenario builder, geocoding, OSM basemaps, CVRPLIB/Solomon import, QGC export | Nothing started. Haversine distances exist (`geodesic=True`) but no importer uses them |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |

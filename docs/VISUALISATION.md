@@ -1,6 +1,6 @@
 # Visualising a run
 
-Four views, all reachable from the command line:
+Five views, all reachable from the command line:
 
 | View | Command | Output |
 |---|---|---|
@@ -8,6 +8,7 @@ Four views, all reachable from the command line:
 | Animated playback | `drp show … --animate flight.gif` | GIF (or MP4) |
 | Interactive flight replay | `drp show … --web flight.html` | one self-contained HTML file |
 | B&B search-tree explorer | `drp tree … -o tree.html` | one self-contained HTML file |
+| Convergence dashboard | `drp dash … -o dash.html` | one self-contained HTML file |
 
 This document is meant to be driven start to finish from an empty directory.
 Every command below was executed before it was written down; the timings and
@@ -29,17 +30,17 @@ drp --help
 That puts the `drp` command on your path. Everything below can then be run from
 any directory.
 
-**The two HTML pages need a network connection when you open them.** They are
+**The three HTML pages need a network connection when you open them.** They are
 self-contained in the sense that matters — no server, no build step, no sibling
-files, just double-click the file, and the instance, the solution and the trace
+files, just double-click the file, and the instance, the solution and the traces
 are all inside — but each one pulls GSAP from cdnjs.cloudflare.com and its two
 typefaces from Google Fonts at load time.
 
 Be clear about what happens if that fails: **the page does not degrade
-gracefully, it does not render at all.** Every element on both pages is built by
-their script, and that script needs GSAP. Rather than leave you with a shell of
-empty panels and no explanation, both pages detect the missing library and say
-so:
+gracefully, it does not render at all.** Every element on all three pages is
+built by their script, and that script needs GSAP. Rather than leave you with a
+shell of empty panels and no explanation, each page detects the missing library
+and says so:
 
 > **This page could not load GSAP** — The file is self-contained apart from one
 > thing: it fetches the GSAP animation library from `cdnjs.cloudflare.com` […]
@@ -406,6 +407,135 @@ there is no convergence story in it, because there was no convergence.
 
 ---
 
+## 5. Convergence dashboard
+
+```bash
+drp dash inst.json --methods ga,sa,alns --time 5 -o dash.html
+```
+
+**For:** the question a table of best energies cannot answer — *how* each
+metaheuristic got where it got, and whether it got there for a good reason. A
+method that flatlines after half a second and a method that was still improving
+when the clock stopped can report the same number and mean very different
+things.
+
+**Needs:** an **instance** JSON. Like `tree`, it runs the searches itself, with
+tracing on.
+
+**Cost** (n=14, 3 methods, `--time 5`):
+
+| Command | Wall clock | Size |
+|---|---|---|
+| `--methods ga,sa,alns --time 5` | ~16 s | 716 KB |
+| `--methods ga,sa,alns --time 5 --reference 10` | ~26 s | 717 KB |
+| `--methods alns --time 3` | ~4 s | 429 KB |
+
+Wall clock is just the sum of the per-method budgets (plus `--reference` if
+given), so it is `methods × --time`. Size is dominated by the traces, and is
+bounded: `--max-samples` (default 3000 per method) caps it regardless of how
+many iterations the search runs.
+
+### What is on the page
+
+- **The main chart.** Every method's best-so-far, plus the *working* solution
+  each one is actually holding, on one pair of axes.
+- **A temperature panel** for SA and ALNS, with reheats marked.
+- **A population panel** for GA: the mean and the spread of the population drawn
+  as a band around the best. Watching that band close is watching the GA lose
+  diversity; watching it stay open, as it does on this instance, is watching it
+  not.
+- **An operator panel** for ALNS — the reason for tracing ALNS at all. The
+  destroy/repair weights are drawn as *shares of the roulette* over every weight
+  update, stacked, so you can see the search learn. On the worked example
+  `random` removal collapses to the 0.05 floor and stops being drawn at all,
+  while `route` removal climbs to about 87% of draws. Only the final weights
+  were ever reported before; this is the adaptation itself.
+- **A scrubber** that moves one playhead across every panel at once, with each
+  method's state at that moment in the panel beside it.
+
+### Controls
+
+| Do this | Get this |
+|---|---|
+| `Space`, or the play button | Play / pause the run |
+| `0.5× 1× 4×` | Playback speed |
+| Drag the scrubber | Move the playhead across every panel at once |
+| `←` `→` (`Shift` for a bigger step), `Home`, `End` | Seek by keyboard |
+| `seconds` / `steps` | Switch the x-axis |
+| `fit best` / `fit all` | Whether the vertical range covers only the best-so-far curves, or the working solutions and the reference floor too |
+
+The page honours `prefers-reduced-motion`, and reflows to one column on a phone.
+
+### Two things it does deliberately, and why
+
+**Wall-clock seconds is the default x-axis.** One GA generation evaluates
+`pop_size` tours; one SA iteration evaluates one. Putting them on a shared step
+axis silently claims those cost the same. The step axis is still there — it is
+the honest axis for reading a single method's own behaviour — and when you
+select it the chart heading says `not comparable across methods`.
+
+**The vertical range fits the best-so-far curves, not everything.** An SA
+working solution wanders far above every answer on the chart, and a range that
+contains it squashes all three best-so-far curves into a band a few pixels tall,
+which is the one thing the chart exists to show. Working solutions are clipped
+instead; `fit all` restores the full range, and the page tells you which curves
+it has clipped rather than letting the legend promise a line you cannot find.
+
+### A floor to judge against
+
+```bash
+drp dash inst.json --methods ga,sa,alns --time 5 -o dash.html --reference 10
+```
+
+`--reference SECONDS` also runs B&B for that long and draws a floor across the
+chart, turning "it converged" into "it converged to *this*". Two cases, and the
+page distinguishes them because they mean different things:
+
+* B&B **proved optimality** → the floor is the optimum, labelled `B&B optimum`.
+  No metaheuristic can legitimately be below it, and a test asserts none is.
+* B&B **did not** → the floor is its *dual bound*, labelled `B&B dual bound`.
+  An unproven incumbent is not a floor and is never drawn as one; the dual bound
+  genuinely is.
+
+On the n=14 worked example B&B does not finish in 10 s, so you get:
+
+```
+bnb  : did not prove optimality in 10.0s; using its dual bound 605.33 as the floor
+```
+
+and the per-method gap to that bound appears in each panel (GA 44.7%, SA 50.2%,
+ALNS 45.9%). Those are gaps to a *bound*, not to the optimum — the true optimum
+is somewhere between 605 and 1095, and the gap to it is smaller than these
+numbers. The page says which floor it is drawing so this cannot be misread.
+
+### One run per method is an anecdote
+
+The page says this itself, at the bottom, and it is worth repeating: `dash` runs
+each method **once**, at one seed. A metaheuristic's spread across seeds is what
+decides whether one method really beats another, and that is
+`drp/eval/stats.py` (Wilcoxon, Friedman + Nemenyi, bootstrap CIs) via `drp bench`
+and `drp compare` — not this view. Use the dashboard to understand a run's
+*shape*; use the statistics to make a claim.
+
+### Sampling
+
+A 5-second SA run does around 8,700 iterations. Recording all of them would put
+megabytes into the page for a curve a few thousand points wide, so traces are
+**decimated**: every stride-th step is kept, and when the buffer fills, every
+second sample is dropped and the stride doubles.
+
+That matters more than it sounds. A curve truncated to its first N points shows
+the opening of the search and nothing after it — the one useless shape for a
+convergence plot. Decimation keeps a *uniform* sample of the whole run at all
+times. Improvements and reheats are recorded separately and in full, so no
+marker is ever dropped, and the page prints the stride it ended up with
+(`every 4th sampled`).
+
+Raise `--max-samples` for a denser curve and a bigger file; lower it for the
+reverse.
+
+---
+
 ## Parameters that change the output
 
 ### `drp generate`
@@ -467,6 +597,22 @@ looks identical.
 | `--solution PATH` | off | also write the solution B&B found |
 | `--no-warm-start` | off | start with no incumbent |
 
+### `drp dash`
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--methods` | `ga,sa,alns` | which metaheuristics to run; any subset |
+| `--time` | `5.0` | seconds **per method** |
+| `--seed` | `1` | seed for every method |
+| `-o` | `dash.html` | output path |
+| `--max-samples` | `3000` | samples kept per method. Bounds the **recording**, never the search |
+| `--reference SECONDS` | `0` (off) | also run B&B this long and draw its optimum, or failing that its dual bound, as a floor |
+| `--title` | instance name | page title |
+
+`dash` supports `ga`, `sa` and `alns` only. `greedy` is a construction heuristic
+with nothing to converge, and `bnb` has its own view (`drp tree`); ask for either
+and it exits with a message rather than drawing an empty panel.
+
 ### Still Python-API only
 
 Two things the CLI does not reach, for want of a sensible flag rather than
@@ -479,8 +625,13 @@ because they are unsupported:
   `drp.viz.treedata.build_vision_data`, which lets you supply a trace from a
   search *you* configured rather than the one `--vision` runs for you. The CLI
   always runs its own.
-- **`build_playback_data`** and **`build_tree_data`** return the raw dicts, if
-  you want to render the payload some other way:
+- **`solve_ga` / `solve_sa` / `solve_alns`** take `trace=True` and
+  `trace_max_samples`, so you can trace a run you configured yourself — a
+  different temperature schedule, a different segment length — rather than the
+  one `dash` runs for you, and hand the traces to `render_dashboard_html`
+  through `drp.viz.dashdata.MethodRun`.
+- **`build_playback_data`**, **`build_tree_data`** and **`build_dashboard_data`**
+  return the raw dicts, if you want to render the payload some other way:
 
 ```python
 from drp.exact.bnb import solve_bnb
@@ -520,5 +671,12 @@ solution came from a metaheuristic and B&B went elsewhere. Give it more
 `--vision-time`, use a smaller instance, or replay B&B's own solution
 (`drp tree … --solution bnbsol.json`). The page reporting a shortfall is it
 working correctly, not failing.
+
+**`dash.html` is large.** Lower `--max-samples`. At the default 3000 per method
+each traced method costs a few hundred KB.
+
+**A method shows `Improvements on the start: 0`.** That is a result, not a bug:
+the method never beat the solution it was handed. SA does this on larger
+instances — see `PROGRESS.md` §2.4 for the measurements and the likely cause.
 
 **`drp: command not found`.** Run `pip install -e .` from the repository root.
