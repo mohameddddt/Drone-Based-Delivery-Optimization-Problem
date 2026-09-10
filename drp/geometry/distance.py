@@ -5,9 +5,18 @@ plain dense matrix so the rest of the package is metric-agnostic.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 EARTH_RADIUS_KM = 6371.0088
+
+#: Kilometres per degree on that sphere. Anything that converts between degrees
+#: and distance -- a no-fly circle's radius, the web page's projection -- must
+#: use this and not a meridian-specific figure, or it will disagree with
+#: `haversine_matrix` by about half a percent and produce flights measurably
+#: shorter than the straight lines they follow.
+KM_PER_DEGREE = math.pi * EARTH_RADIUS_KM / 180.0
 
 
 def euclidean_matrix(coords: np.ndarray) -> np.ndarray:

@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osm version="0.6" generator="hand-written fixture for tests">
+  <bounds minlat="-0.10" minlon="109.30" maxlat="-0.02" maxlon="109.38"/>
+
+  <node id="1" lat="-0.090" lon="109.310"/>
+  <node id="2" lat="-0.080" lon="109.320"/>
+  <node id="3" lat="-0.070" lon="109.330"/>
+  <node id="4" lat="-0.060" lon="109.340"/>
+  <node id="5" lat="-0.050" lon="109.350"/>
+  <node id="6" lat="-0.040" lon="109.360"/>
+  <node id="7" lat="-0.030" lon="109.370"/>
+  <node id="8" lat="-0.035" lon="109.315"/>
+  <node id="9" lat="-0.045" lon="109.325"/>
+  <node id="10" lat="-0.055" lon="109.315"/>
+
+  <!-- a node far outside the bounds, to check bbox clipping -->
+  <node id="20" lat="-5.000" lon="120.000"/>
+  <node id="21" lat="-5.010" lon="120.010"/>
+
+  <node id="100" lat="-0.050" lon="109.340">
+    <tag k="place" v="city"/>
+    <tag k="name" v="Testville"/>
+  </node>
+  <node id="101" lat="-0.070" lon="109.320">
+    <tag k="place" v="village"/>
+    <tag k="name" v="Smallwood"/>
+  </node>
+  <node id="102" lat="-0.030" lon="109.360">
+    <tag k="place" v="suburb"/>
+    <tag k="name" v="Testville"/>
+  </node>
+  <node id="103" lat="-0.060" lon="109.300">
+    <tag k="place" v="village"/>
+  </node>
+
+  <way id="1000">
+    <nd ref="1"/><nd ref="2"/><nd ref="3"/><nd ref="4"/>
+    <tag k="highway" v="trunk"/>
+    <tag k="name" v="Jalan Besar"/>
+  </way>
+
+  <way id="1001">
+    <nd ref="4"/><nd ref="5"/><nd ref="6"/>
+    <tag k="highway" v="tertiary"/>
+  </way>
+
+  <way id="1002">
+    <nd ref="8"/><nd ref="9"/><nd ref="10"/>
+    <tag k="highway" v="residential"/>
+  </way>
+
+  <way id="1003">
+    <nd ref="1"/><nd ref="8"/>
+    <tag k="highway" v="footway"/>
+  </way>
+
+  <way id="1004">
+    <nd ref="2"/><nd ref="5"/><nd ref="7"/>
+    <tag k="waterway" v="river"/>
+  </way>
+
+  <way id="1005">
+    <nd ref="3"/><nd ref="4"/><nd ref="9"/><nd ref="3"/>
+    <tag k="natural" v="water"/>
+  </way>
+
+  <way id="1006">
+    <nd ref="5"/><nd ref="6"/><nd ref="7"/><nd ref="5"/>
+    <tag k="leisure" v="park"/>
+  </way>
+
+  <way id="1007">
+    <nd ref="1"/><nd ref="2"/><nd ref="9"/><nd ref="1"/>
+    <tag k="landuse" v="residential"/>
+  </way>
+
+  <way id="1008">
+    <nd ref="8"/><nd ref="9"/><nd ref="10"/><nd ref="8"/>
+    <tag k="building" v="yes"/>
+  </way>
+
+  <way id="1009">
+    <nd ref="20"/><nd ref="21"/>
+    <tag k="highway" v="trunk"/>
+  </way>
+</osm>

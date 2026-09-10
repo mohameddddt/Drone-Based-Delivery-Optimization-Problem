@@ -8,12 +8,25 @@ substitutes the template's placeholders rather than just concatenating text.
 from __future__ import annotations
 
 import math
+from pathlib import Path
+
+import numpy as np
+import pytest
 
 from drp.core.energy import route_energy, route_weight
 from drp.eval.runner import solve_one
-from drp.instances import generate_instance, generate_zone_instance
+from drp.instances import (DEFAULT_DATASET, build_geo_instance,
+                           generate_instance, generate_zone_instance)
 from drp.viz.webdata import build_playback_data
 from drp.viz.webplayback import DATA_TOKEN, NAME_TOKEN, render_playback_html
+
+
+@pytest.fixture(scope="module")
+def geo_instance():
+    if not DEFAULT_DATASET.exists():
+        pytest.skip("delivery dataset not present")
+    return build_geo_instance("web-geo", 9, 3, seed=12,
+                              district="Pontianak South", road_slot="IV")
 
 
 def _solved(inst):
@@ -89,3 +102,84 @@ def test_render_playback_html_end_to_end_smoke(tmp_path):
     sol = _solved(inst)
     out = render_playback_html(inst, sol, tmp_path / "sub" / "flight.html")
     assert out.stat().st_size > 10_000
+
+
+# ---------------------------------------------------------------------------
+# geodesic instances (roadmap §3.2/§3.4)
+#
+# The page was built before any instance had real coordinates. Handed (lat, lon)
+# it would draw latitude along x -- north pointing right -- and measure flights
+# in degrees, a unit that is neither kilometres nor consistent between the two
+# axes. `projection` is what stops both, so it is what these pin.
+# ---------------------------------------------------------------------------
+def test_a_planar_instance_needs_no_projection():
+    inst = generate_instance("plain", 8, 3, seed=1)
+    data = build_playback_data(inst, _solved(inst))
+    assert data["meta"]["projection"] is None
+    assert data["meta"]["units"] == "units"
+
+
+def test_a_geodesic_instance_is_projected_to_kilometres(geo_instance):
+    inst = geo_instance
+    data = build_playback_data(inst, _solved(inst))
+    proj = data["meta"]["projection"]
+
+    assert proj["kind"] == "geodesic"
+    assert data["meta"]["units"] == "km"
+    assert (proj["lat0"], proj["lon0"]) == (inst.coords[0][0], inst.coords[0][1])
+    # Longitude degrees shrink with latitude; near the equator, barely.
+    assert proj["km_per_deg_lon"] == pytest.approx(
+        proj["km_per_deg_lat"] * math.cos(math.radians(proj["lat0"])))
+
+
+def test_flown_distance_is_kilometres_not_degrees(geo_instance):
+    """The page's "flown distance" has to be the same kind of number the
+    solver's energies are, or the two panels quietly disagree."""
+    inst = geo_instance
+    sol = _solved(inst)
+    data = build_playback_data(inst, sol)
+
+    for flight in data["flights"]:
+        route = flight["route"]
+        straight = sum(inst.dist[a, b] for a, b in
+                       zip([0] + route, route + [0]))
+        # Flown >= straight-line (detours only add), and within a factor that a
+        # degree-based measurement would blow past by ~100x.
+        assert flight["length"] >= straight - 1e-6
+        assert flight["length"] < straight * 1.5 + 1e-6
+        assert flight["length"] < 1000.0          # km, over a single city
+
+
+def test_separation_is_expressed_in_the_units_the_page_measures(geo_instance):
+    inst = geo_instance
+    data = build_playback_data(inst, _solved(inst))
+    from drp.geometry.distance import KM_PER_DEGREE
+    span_km = (max(np.ptp(inst.coords[:, 0]), np.ptp(inst.coords[:, 1]))
+               * KM_PER_DEGREE)
+    assert data["meta"]["separation"] == pytest.approx(0.03 * span_km, rel=0.02)
+
+
+def test_a_basemap_travels_with_the_payload_and_into_the_page(tmp_path,
+                                                              geo_instance):
+    from drp.geometry.osm import read_osm
+    from drp.viz.basemap import basemap_for_instance
+
+    inst = geo_instance
+    osm = read_osm(Path(__file__).resolve().parent / "data" / "tiny.osm")
+    basemap = basemap_for_instance(inst, osm)
+
+    data = build_playback_data(inst, _solved(inst), basemap=basemap)
+    assert data["basemap"]["schema"] == "drp-basemap/v1"
+
+    page = render_playback_html(inst, _solved(inst), tmp_path / "p.html",
+                                basemap=basemap).read_text(encoding="utf-8")
+    assert '"drp-basemap/v1"' in page
+    # and the page must be told to draw it rather than its invented city
+    assert "drawRealBasemap" in page
+
+
+def test_without_a_basemap_the_page_still_invents_one(tmp_path, geo_instance):
+    page = render_playback_html(geo_instance, _solved(geo_instance),
+                                tmp_path / "p.html").read_text(encoding="utf-8")
+    assert '"drp-basemap/v1"' not in page
+    assert "REALMAP" in page          # the branch exists; it just takes the other arm

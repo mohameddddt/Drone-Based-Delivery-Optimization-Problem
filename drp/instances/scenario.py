@@ -60,7 +60,7 @@ SCENARIO_SCHEMA = "drp-scenario/v1"
 PathLike = Union[str, Path]
 
 _TOP_KEYS = {"schema", "name", "seed", "source", "depot", "fleet", "energy",
-             "demand", "nofly", "geodesic", "notes"}
+             "demand", "nofly", "geodesic", "notes", "gazetteer"}
 _SOURCE_KEYS = {"dataset", "district", "road_slot", "count", "points",
                 "synthetic"}
 
@@ -95,11 +95,18 @@ def save_scenario(spec: Dict[str, Any], path: PathLike) -> Path:
 
 
 def build_scenario(spec: Dict[str, Any],
-                   dataset: Optional[PathLike] = None) -> DRPInstance:
+                   dataset: Optional[PathLike] = None,
+                   gazetteer: Optional[PathLike] = None) -> DRPInstance:
     """Turn a ``drp-scenario/v1`` mapping into an instance.
 
     `dataset` overrides the CSV path for dataset-backed scenarios; the file's
     own ``source.dataset`` wins over the shipped default when neither is given.
+
+    `gazetteer` (or the scenario's own ``"gazetteer"`` key) points at an OSM
+    extract, and place names then resolve against **its** settlement names as
+    well as the dataset's districts -- so ``{"place": "Bansir Darat"}`` finds
+    the actual kelurahan rather than failing. That is offline geocoding: no
+    service, no network, and only names the extract contains.
     """
     schema = spec.get("schema")
     if schema is not None and schema != SCENARIO_SCHEMA:
@@ -136,10 +143,11 @@ def build_scenario(spec: Dict[str, Any],
         demands = None
         geodesic = bool(spec.get("geodesic", True))
 
-    gazetteer = _gazetteer(source, dataset) if _needs_places(spec) else {}
-    depot = _resolve_depot(spec.get("depot"), points, gazetteer)
+    places = (_gazetteer(source, dataset, gazetteer or spec.get("gazetteer"))
+              if _needs_places(spec) else {})
+    depot = _resolve_depot(spec.get("depot"), points, places)
     n_drones = int(fleet.get("n_drones", max(1, math.ceil(len(points) / 6))))
-    zones = _build_zones(spec.get("nofly", {}), gazetteer, geodesic)
+    zones = _build_zones(spec.get("nofly", {}), places, geodesic)
 
     payload, battery, battery_factor = _fleet_limits(fleet)
 
@@ -156,8 +164,10 @@ def build_scenario(spec: Dict[str, Any],
 
 
 def build_scenario_file(path: PathLike,
-                        dataset: Optional[PathLike] = None) -> DRPInstance:
-    return build_scenario(load_scenario(path), dataset=dataset)
+                        dataset: Optional[PathLike] = None,
+                        gazetteer: Optional[PathLike] = None) -> DRPInstance:
+    return build_scenario(load_scenario(path), dataset=dataset,
+                          gazetteer=gazetteer)
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +207,23 @@ def _needs_places(spec: Dict[str, Any]) -> bool:
 
 
 def _gazetteer(source: Dict[str, Any],
-               dataset: Optional[PathLike]) -> Dict[str, Tuple[float, float]]:
+               dataset: Optional[PathLike],
+               osm_extract: Optional[PathLike] = None
+               ) -> Dict[str, Tuple[float, float]]:
+    """District centroids, plus an OSM extract's settlements when one is given.
+
+    Districts win on a name clash: they are the dataset's own vocabulary, and a
+    scenario that says "Pontianak South" means the district the customers were
+    sampled from, not a node that happens to share the name.
+    """
     path = dataset or source.get("dataset") or DEFAULT_DATASET
-    return district_centroids(load_delivery_points(path))
+    places: Dict[str, Tuple[float, float]] = {}
+    if osm_extract:
+        from drp.geometry.osm import place_gazetteer, read_osm
+
+        places.update(place_gazetteer(read_osm(osm_extract)))
+    places.update(district_centroids(load_delivery_points(path)))
+    return places
 
 
 def _resolve_place(where: Any,

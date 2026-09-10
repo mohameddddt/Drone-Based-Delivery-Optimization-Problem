@@ -427,11 +427,36 @@ const fnum = (v,d) => (v===null || v===undefined || !isFinite(v)) ? null : v;
 // ===========================================================================
 // geometry + camera
 // ===========================================================================
-const b = DATA.meta.bounds;
+// Instance coordinates -> the plane this page draws in, and back again.
+// A planar instance is already a plane; only y flips, because SVG counts down.
+// A geodesic one carries (lat, lon) degrees: drawn raw, north would point to
+// the right and every distance would be measured in degrees. meta.projection
+// carries the local tangent plane -- kilometres east and north of the depot --
+// and the payload's own lengths use the same one, so the scale bar, the grid
+// and the telemetry all agree.
+const PROJ = DATA.meta.projection || null;
+const UNITS = DATA.meta.units || "units";
+const RAW = DATA.meta.bounds;
+const flipY = y => RAW.ymin + RAW.ymax - y;
+const toSvg = PROJ
+  ? p => [(p[1] - PROJ.lon0) * PROJ.km_per_deg_lon,
+          -(p[0] - PROJ.lat0) * PROJ.km_per_deg_lat]
+  : p => [p[0], flipY(p[1])];
+// Inverse, for the coordinate readout: world -> [lat, lon] or [x, y].
+const fromSvg = PROJ
+  ? w => [PROJ.lat0 - w[1] / PROJ.km_per_deg_lat,
+          PROJ.lon0 + w[0] / PROJ.km_per_deg_lon]
+  : w => [w[0], flipY(w[1])];
+
+const b = (() => {
+  const cs = [[RAW.xmin,RAW.ymin],[RAW.xmin,RAW.ymax],
+              [RAW.xmax,RAW.ymin],[RAW.xmax,RAW.ymax]].map(toSvg);
+  const xs = cs.map(c=>c[0]), ys = cs.map(c=>c[1]);
+  return {xmin:Math.min(...xs), xmax:Math.max(...xs),
+          ymin:Math.min(...ys), ymax:Math.max(...ys)};
+})();
 const dataW = (b.xmax-b.xmin) || 1, dataH = (b.ymax-b.ymin) || 1;
 const pad = Math.max(dataW, dataH) * 0.14;
-const flipY = y => b.ymin + b.ymax - y;
-const toSvg = p => [p[0], flipY(p[1])];
 const depot = toSvg(DATA.instance.depot);
 
 const svg = document.getElementById("map");
@@ -528,6 +553,84 @@ function smoothPath(pts){
   return d + ` L${last[0].toFixed(2)},${last[1].toFixed(2)}`;
 }
 
+// The page draws one of two cities. Given a drp-basemap/v1 payload it draws the
+// real one -- OpenStreetMap geometry for the very coordinates the instance uses.
+// Without one it invents a plausible chart, which is what every synthetic
+// instance gets, since a synthetic instance is nowhere.
+const REALMAP = DATA.basemap || null;
+const placeLabels = [];
+
+function drawRealBasemap(bm){
+  const line = pts => "M" + pts.map(q => toSvg(q).map(n => n.toFixed(3)).join(",")).join(" L");
+  const area = pts => line(pts) + " Z";
+  const add = (node) => L.ground.appendChild(node);
+
+  add(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:C.land}));
+
+  (bm.built || []).forEach(poly => add(el("path", {d:area(poly), fill:C.urban,
+    "fill-opacity":"0.85", stroke:C.urbanEdge, "stroke-width":(unit*0.09).toFixed(3)})));
+  (bm.green || []).forEach(poly => add(el("path", {d:area(poly), fill:C.park,
+    "fill-opacity":"0.9", stroke:C.parkInk, "stroke-width":(unit*0.07).toFixed(3),
+    "stroke-opacity":"0.5"})));
+  ((bm.water||{}).areas || []).forEach(poly => add(el("path", {d:area(poly),
+    fill:C.water, stroke:C.waterDeep, "stroke-width":(unit*0.08).toFixed(3)})));
+  ((bm.water||{}).lines || []).forEach(w => {
+    add(el("path", {d:line(w), fill:"none", stroke:C.waterDeep,
+      "stroke-width":(unit*0.34).toFixed(3), "stroke-linecap":"round"}));
+    add(el("path", {d:line(w), fill:"none", stroke:C.water,
+      "stroke-width":(unit*0.26).toFixed(3), "stroke-linecap":"round"}));
+  });
+
+  // Casing under every class first, then the fill on top, so junctions knit
+  // together instead of showing seams -- the reason a chart's roads read as a
+  // network rather than as a pile of separate strokes.
+  const CLASSES = [["street", unit*0.20, C.roadMinor],
+                   ["secondary", unit*0.36, C.road],
+                   ["arterial", unit*0.55, C.road]];
+  CLASSES.forEach(([cls, w]) => {
+    const g = el("g", {fill:"none", stroke:C.roadCase, "stroke-width":(w*1.6).toFixed(3),
+      "stroke-linecap":"round", "stroke-linejoin":"round"});
+    ((bm.roads||{})[cls] || []).forEach(r => g.appendChild(el("path", {d:line(r)})));
+    add(g);
+  });
+  CLASSES.forEach(([cls, w, colour]) => {
+    const g = el("g", {fill:"none", stroke:colour, "stroke-width":w.toFixed(3),
+      "stroke-linecap":"round", "stroke-linejoin":"round"});
+    ((bm.roads||{})[cls] || []).forEach(r => g.appendChild(el("path", {d:line(r)})));
+    add(g);
+  });
+
+  // Real names, placed at their real coordinates, with the same collision rule
+  // the invented ones used: a name dropped beats two names overprinted.
+  const MINSEP = span * 0.11;
+  const taken = [[depot[0], depot[1]]];
+  const ranked = (bm.places || []).slice().sort((a, c) =>
+    (["city","town","suburb","quarter","neighbourhood","village","hamlet"].indexOf(a.kind)) -
+    (["city","town","suburb","quarter","neighbourhood","village","hamlet"].indexOf(c.kind)));
+  ranked.forEach(place => {
+    const c = toSvg([place.lat, place.lon]);
+    if (taken.some(t => Math.hypot(t[0]-c[0], t[1]-c[1]) < MINSEP)) return;
+    // A name centred near the frame edge is drawn half off the sheet, and the
+    // longer the name the worse it reads -- so keep clear of both edges.
+    const inset = span * 0.05 + place.name.length * unit * 0.42;
+    if (c[0] < vb.x + inset || c[0] > vb.x + vb.w - inset) return;
+    if (c[1] < vb.y + span*0.03 || c[1] > vb.y + vb.h - span*0.03) return;
+    taken.push(c);
+    const t = el("text", {"text-anchor":"middle", "font-family":"Familjen Grotesk",
+      "font-weight":"600", "font-size":(unit*1.5).toFixed(2), fill:C.muted2,
+      "letter-spacing":(unit*0.22).toFixed(2), "fill-opacity":"0.9",
+      "paint-order":"stroke", stroke:C.land, "stroke-width":(unit*0.55).toFixed(3),
+      "stroke-linejoin":"round"});
+    txt(t, place.name.toUpperCase());
+    L.ground.appendChild(t);
+    placeLabels.push({node:t, x:c[0], y:c[1]});
+  });
+}
+
+if (REALMAP) drawRealBasemap(REALMAP);
+
+if (!REALMAP) {
 // --- land base
 L.ground.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
   width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:C.land}));
@@ -683,7 +786,6 @@ L.ground.appendChild(bldgG);
 // --- place labels: a few, letter-spaced, the way a chart names districts
 const DISTRICTS = ["NORTHFIELD","BAYSIDE","OLDGATE","MILLBROOK","EASTPORT","CLAYHILL",
                    "WESTMARSH","KINGSFORD","STONEROW","FAIRVIEW"];
-const placeLabels = [];
 (function nameDistricts(){
   // Satellites and parks can share a centroid, and two names printed on the same
   // spot is worse than one name fewer -- so candidates are placed only if they
@@ -710,6 +812,7 @@ const placeLabels = [];
     placeLabels.push({node:t, x:c[0], y:c[1]});
   });
 })();
+}   // end of the invented chart
 
 // --- hub apron on the ground plane
 L.ground.appendChild(el("circle", {cx:depot[0], cy:depot[1], r:(unit*7.2).toFixed(2),
@@ -766,7 +869,9 @@ function updateGraticule(){
     t.setAttribute("x", (camera.x + unit*0.6*symK).toFixed(2));
     t.setAttribute("y", (y - unit*0.6*symK).toFixed(2));
     t.setAttribute("font-size", fs);
-    txt(t, flipY(y).toFixed(step < 1 ? 1 : 0)); t.style.display = "";
+    // Projected, y counts south, so a northing reads as its negative.
+    const label = PROJ ? -y : flipY(y);
+    txt(t, label.toFixed(step < 1 ? 1 : 0)); t.style.display = "";
   }
   for (; i < GRAT_POOL; i++){ gratLines[i].style.display = "none"; gratLabels[i].style.display = "none"; }
 }
@@ -1252,7 +1357,8 @@ const scaleBar = document.getElementById("scaleBar"), scaleTxt = document.getEle
 function updateScaleBar(){
   const target = niceStep(camera.w * 0.18);
   scaleBar.style.width = Math.round(target * pxPerWorld) + "px";
-  scaleTxt.textContent = `${target >= 1 ? target.toFixed(0) : target.toFixed(1)} units`;
+  scaleTxt.textContent =
+    `${target >= 1 ? target.toFixed(0) : target.toFixed(1)} ${UNITS}`;
 }
 let hoverW = null;
 const readout = document.getElementById("readout");
@@ -1263,8 +1369,17 @@ function updateReadout(ev){
               camera.y + ((ev.clientY-r.top)/r.height)*camera.h];
   }
   const z = HOME.w / camera.w;
+  let where = "";
+  if (hoverW){
+    const d = fromSvg(hoverW);
+    where = PROJ
+      // Real coordinates, in the hemisphere notation a chart would use.
+      ? `${Math.abs(d[0]).toFixed(4)}&deg;${d[0] < 0 ? "S" : "N"} &nbsp; ` +
+        `${Math.abs(d[1]).toFixed(4)}&deg;${d[1] < 0 ? "W" : "E"}`
+      : `X ${d[0].toFixed(1)} &nbsp; Y ${d[1].toFixed(1)}`;
+  }
   readout.innerHTML = hoverW
-    ? `X ${hoverW[0].toFixed(1)} &nbsp; Y ${flipY(hoverW[1]).toFixed(1)} &nbsp;&middot;&nbsp; ${z.toFixed(1)}&times;`
+    ? `${where} &nbsp;&middot;&nbsp; ${z.toFixed(1)}&times;`
     : `ZOOM ${z.toFixed(1)}&times; &nbsp;&middot;&nbsp; DRAG TO PAN`;
 }
 
