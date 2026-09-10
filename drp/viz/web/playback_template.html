@@ -99,9 +99,13 @@
   .maplegend i{width:10px;height:10px;flex:0 0 auto;border-radius:2px;}
   .sw-zone{background:repeating-linear-gradient(45deg,var(--restricted) 0 2px,transparent 2px 5px);
     border:1px solid var(--restricted);}
-  .sw-conf{background:var(--caution);border-radius:50%;}
-  .sw-pend{background:#FBFAF5;border:2px solid var(--muted);border-radius:50%;}
-  .sw-done{background:var(--success);border-radius:50%;}
+  /* Shape, not just hue: breach is a hollow ring, delivered is a filled disc
+     with a tick, pending is an empty outline. All three read in greyscale. */
+  .sw-conf{background:transparent;border:2px dashed var(--caution);border-radius:50%;}
+  .sw-pend{background:var(--panel);border:2px solid var(--muted);border-radius:50%;}
+  .sw-done{background:var(--success);border-radius:50%;position:relative;}
+  .sw-done::after{content:"";position:absolute;left:3px;top:1px;width:3px;height:6px;
+    border:solid var(--panel);border-width:0 1.6px 1.6px 0;transform:rotate(45deg);}
   @media (max-width:640px){.maplegend{display:none;}}
 
   .tooltip{position:absolute;pointer-events:none;background:var(--panel);
@@ -157,8 +161,10 @@
   .drone-row{border:1px solid var(--line);border-radius:4px;padding:9px 10px;background:var(--paper);
     cursor:pointer;position:relative;overflow:hidden;
     transition:border-color .15s,background .15s,transform .15s;}
+  /* The spine repeats the drone's dash pattern from the map, so the manifest
+     row and its route are matched by shape as well as by colour. */
   .drone-row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
-    background:var(--dc);opacity:.55;transition:opacity .15s;}
+    background:var(--dstripe,var(--dc));opacity:.55;transition:opacity .15s;}
   .drone-row:hover{background:#fff;}
   .drone-row.hot{border-color:var(--dc);background:#fff;}
   .drone-row.hot::before{opacity:1;}
@@ -452,17 +458,45 @@ gsap.matchMedia().add("(prefers-reduced-motion: reduce)", () => { reduced = true
 const MOTION = {fast:.18, normal:.35, deliberate:.6, cine:1.1,
   ui:"power2.out", flight:"power1.inOut", reveal:"expo.out"};
 
-const C = {
-  ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8",
-  paper:"#EDEBE1", panel:"#FBFAF5",
+// ---------- theme (roadmap 2.5) ----------
+// Every colour that carries a *meaning* lives in Python (`drp/viz/theme.py`)
+// and travels in the payload, so `--theme safe` / `--theme chart` switches this
+// page, the matplotlib figures and the other two pages together; there is no
+// second copy of a palette anywhere in the repository.
+const THEME = (DATA && DATA.theme) || null;
+// CSS custom property <- theme token. The stylesheet above is written against
+// these names, so pushing the tokens through here is what makes the HTML
+// chrome and the SVG agree on one palette.
+const CSS_VARS = {
+  "--paper":"paper", "--paper-2":"paper2", "--panel":"panel", "--ink":"ink",
+  "--muted":"muted", "--muted-2":"muted2", "--line":"line", "--line-2":"line2",
+  "--restricted":"restricted", "--caution":"caution", "--warn":"warn",
+  "--success":"success", "--accent":"accent", "--accent-2":"accent2",
+  "--water":"water",
+};
+function applyTheme(tokens){
+  if (!tokens) return;
+  const root = document.documentElement.style;
+  for (const k in CSS_VARS){ if (tokens[CSS_VARS[k]]) root.setProperty(k, tokens[CSS_VARS[k]]); }
+}
+
+// The basemap's own tones are not part of the theme: they carry no encoding,
+// they are terrain. They stay here, and the semantic tokens are layered over
+// them. The second object is the fallback that keeps the page renderable if it
+// is ever handed a payload written before the theme existed.
+const C = Object.assign({
   land:"#EFEDE3", urban:"#E4DFCE", urbanEdge:"#D2CCB6",
   park:"#D3DFC2", parkInk:"#7C9464", tree:"#5F7F4E",
-  water:"#BCD3D8", waterDeep:"#93B2BA",
+  waterDeep:"#93B2BA",
   road:"#FFFFFF", roadCase:"#C7C6B5", roadMinor:"#DCDACB",
   bldg:"#DEDACB", bldgInk:"#C0BCA9",
+}, {
+  ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8",
+  paper:"#EDEBE1", panel:"#FBFAF5", water:"#BCD3D8",
   accent:"#2C4F55", accent2:"#3E7078", restricted:"#8E2F63", caution:"#B23A22",
   warn:"#9C6B12", success:"#3E7A3C",
-};
+}, THEME ? THEME.tokens : {});
+applyTheme(THEME ? THEME.tokens : null);
 
 function mulberry32(seed){
   return function(){
@@ -885,9 +919,17 @@ const flightEls = DATA.flights.map(f => {
   const g = el("g", {});
   const casing = el("path", {d, fill:"none", stroke:"#FBFAF5", "stroke-opacity":"0.75",
     "stroke-linecap":"round", "stroke-linejoin":"round"});
+  // The second channel (roadmap 2.5). The planned route carries the drone's
+  // dash pattern from the theme, so which route belongs to which aircraft is
+  // legible without colour. The pattern is in theme units and scaled by
+  // `unit` so it holds its shape as the map zooms; an empty pattern in the
+  // theme falls back to the original uniform dots.
+  const planDash = (f.dash || "").trim()
+    ? f.dash.split(/[ ,]+/).map(v => (parseFloat(v) * unit * 0.55).toFixed(2)).join(",")
+    : `${(unit*1.05).toFixed(2)},${(unit*0.8).toFixed(2)}`;
   const plan = el("path", {d, fill:"none", stroke:f.color, "stroke-opacity":"0.55",
     "stroke-linecap":"round", "stroke-linejoin":"round",
-    "stroke-dasharray":`${(unit*1.05).toFixed(2)},${(unit*0.8).toFixed(2)}`});
+    "stroke-dasharray":planDash});
   const trail = el("path", {d, fill:"none", stroke:f.color,
     "stroke-linecap":"round", "stroke-linejoin":"round"});
   const active = el("path", {d:"", fill:"none", stroke:f.color, "stroke-linecap":"round",
@@ -1169,6 +1211,7 @@ syncDroneScale = function(){
 // ===========================================================================
 const conflictG = el("g", {opacity:"0"});
 const conflictRing = el("circle", {r:(unit*2.6).toFixed(2), fill:"none", stroke:C.caution,
+  "stroke-dasharray":`${(unit*0.5).toFixed(2)},${(unit*0.35).toFixed(2)}`,
   "stroke-width":(unit*0.34).toFixed(3), "stroke-dasharray":`${(unit*0.8).toFixed(2)},${(unit*0.55).toFixed(2)}`});
 const conflictLine = el("line", {stroke:C.caution, "stroke-width":(unit*0.16).toFixed(3),
   "stroke-dasharray":`${(unit*0.45).toFixed(2)},${(unit*0.35).toFixed(2)}`, "stroke-opacity":"0.85"});
@@ -1350,11 +1393,29 @@ const fleetPayload = DATA.instance.fleet.payload;
 const battery = DATA.meta.battery;
 let selected = null;
 
+// `"7 3"` -> a vertical repeating gradient in the drone's own colour, so the
+// row spine carries the same dash pattern its route does. Solid stays solid.
+function dashStripe(dash){
+  const v = (dash || "").trim();
+  if (!v) return "var(--dc)";
+  const seg = v.split(/[ ,]+/).map(Number).filter(n => isFinite(n) && n > 0);
+  if (!seg.length) return "var(--dc)";
+  const px = seg.map(n => n * 2.2);
+  let at = 0;
+  const stops = px.map((len, i) => {
+    const s = `${(i % 2 ? "transparent" : "var(--dc)")} ${at.toFixed(1)}px ${(at + len).toFixed(1)}px`;
+    at += len;
+    return s;
+  });
+  return `repeating-linear-gradient(180deg, ${stops.join(", ")})`;
+}
+
 const rowsByDrone = {};
 DATA.flights.forEach(f => {
   const row = document.createElement("div");
   row.className = "drone-row";
   row.style.setProperty("--dc", f.color);
+  row.style.setProperty("--dstripe", dashStripe(f.dash));
   const e = fnum(f.energy);
   row.innerHTML = `
     <div class="top">

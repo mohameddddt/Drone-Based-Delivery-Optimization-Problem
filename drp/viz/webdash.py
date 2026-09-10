@@ -28,13 +28,16 @@ def render_dashboard_html(inst: DRPInstance,
                           path: PathLike = "dashboard.html",
                           reference: Optional[float] = None,
                           reference_label: str = "",
-                          title: Optional[str] = None) -> Path:
+                          title: Optional[str] = None,
+                          theme=None) -> Path:
     """Write the convergence dashboard for `runs` to `path`.
 
     Each run must carry a trace (the solver called with ``trace=True``).
+    `theme` is a name or a `drp.viz.theme.Theme`.
     """
     data = build_dashboard_data(inst, runs, reference=reference,
-                                reference_label=reference_label, title=title)
+                                reference_label=reference_label, title=title,
+                                theme=theme)
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     # `</` would otherwise let a string field (e.g. an imported instance name)
     # break out of the enclosing <script> tag.

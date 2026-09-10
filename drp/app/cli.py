@@ -3,7 +3,7 @@
     drp generate --n 40 --drones 8 --zones 3 --seed 7 -o inst.json
     drp solve    inst.json --method alns --time 60 --seed 1 -o sol.json
     drp compare  inst.json --methods bnb,ga,sa,alns --seeds 1-10 --time 30
-    drp show     sol.json --instance inst.json -o routes.png
+    drp show     sol.json --instance inst.json -o routes.svg
     drp tree     inst.json --time 20 -o tree.html
     drp dash     inst.json --methods ga,sa,alns --time 5 -o dash.html
     drp export   sol.json --instance inst.json --format geojson -o routes.geojson
@@ -11,6 +11,11 @@
 
 `docs/VISUALISATION.md` is the runnable guide to every view `show` and `tree`
 produce.
+
+Every view-producing subcommand takes ``--theme``. The default, ``safe``, is
+the colour-blind-safe theme (roadmap 2.5); ``--theme chart`` is the original
+aeronautical-chart palette, kept so committed figures regenerate unchanged.
+``DRP_VIZ_THEME`` sets the default for a shell.
 """
 from __future__ import annotations
 
@@ -297,6 +302,20 @@ def cmd_export(args) -> int:
     return 0
 
 
+def _add_theme(parser: argparse.ArgumentParser) -> None:
+    """`--theme` for every subcommand that draws something.
+
+    Declared per-subcommand rather than on the top-level parser so that
+    `drp show --theme chart ...` works; a top-level-only option would have to
+    be written before the subcommand name, which nobody does.
+    """
+    from drp.viz.theme import DEFAULT_THEME, theme_names
+    parser.add_argument("--theme", default=None, choices=theme_names(),
+                        help=(f"colour theme (default {DEFAULT_THEME}; "
+                              f"$DRP_VIZ_THEME overrides that, --theme "
+                              f"overrides both)"))
+
+
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="drp", description=__doc__,
@@ -345,7 +364,9 @@ def build_parser() -> argparse.ArgumentParser:
     sh = sub.add_parser("show", help="plot a solution")
     sh.add_argument("solution")
     sh.add_argument("--instance", required=True)
-    sh.add_argument("-o", "--output", default="routes.png")
+    sh.add_argument("-o", "--output", default="routes.png",
+                    help=("static plot; the extension picks the format -- .png "
+                          "for a raster, .svg/.pdf/.eps for vector geometry"))
     sh.add_argument("--animate", metavar="GIF",
                     help="also write an animated playback to this path")
     sh.add_argument("--web", metavar="HTML",
@@ -363,6 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "routes the search considered and rejected")
     sh.add_argument("--vision-time", type=float, default=10.0,
                     help="seconds for the --vision B&B search")
+    _add_theme(sh)
     sh.add_argument("--max-nodes", type=int, default=20000,
                     help="cap on trace records for --vision")
     sh.set_defaults(func=cmd_show)
@@ -377,6 +399,7 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--title", help="title for the page")
     tr.add_argument("--solution", metavar="JSON",
                     help="also write the solution B&B found to this path")
+    _add_theme(tr)
     tr.add_argument("--no-warm-start", action="store_true",
                     help="start with no incumbent, so the tree shows the search "
                          "finding its first solution")
@@ -395,6 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     da.add_argument("--reference", type=float, default=0.0, metavar="SECONDS",
                     help="also run B&B for this long and draw its optimum "
                          "(or, failing that, its dual bound) as a floor")
+    _add_theme(da)
     da.add_argument("--title", help="title for the page")
     da.set_defaults(func=cmd_dash)
 
@@ -410,6 +434,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    theme = getattr(args, "theme", None)
+    if theme:
+        from drp.viz.theme import use_theme
+        use_theme(theme)
     return args.func(args)
 
 

@@ -27,12 +27,14 @@ NAME_TOKEN = "__DRP_INSTANCE_NAME__"
 def render_tree_html(inst: DRPInstance,
                      res: BnBResult,
                      path: PathLike = "tree.html",
-                     title: Optional[str] = None) -> Path:
+                     title: Optional[str] = None,
+                   theme=None) -> Path:
     """Write the B&B tree explorer for `res` to `path`.
 
-    `res` must carry a trace (``solve_bnb(..., trace=True)``).
+    `res` must carry a trace (``solve_bnb(..., trace=True)``). `theme` is a
+    name or a `drp.viz.theme.Theme`.
     """
-    data = build_tree_data(inst, res, title=title)
+    data = build_tree_data(inst, res, title=title, theme=theme)
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     # `</` would otherwise let a string field (e.g. an imported instance name)
     # break out of the enclosing <script> tag.

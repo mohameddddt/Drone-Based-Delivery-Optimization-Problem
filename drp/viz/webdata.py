@@ -26,7 +26,8 @@ from drp.core.energy import route_energy, route_weight
 from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
 from drp.instances.io import instance_to_dict, solution_to_dict
-from drp.viz.static import PALETTE, route_polyline
+from drp.viz.static import route_polyline
+from drp.viz.theme import Theme, resolve
 
 
 def _cumulative(xs: List[float], ys: List[float]) -> List[float]:
@@ -37,13 +38,18 @@ def _cumulative(xs: List[float], ys: List[float]) -> List[float]:
     return [0.0] + list(np.cumsum(seg))
 
 
-def _flight(inst: DRPInstance, drone: int, route: List[int]) -> Dict[str, Any]:
+def _flight(inst: DRPInstance, drone: int, route: List[int],
+            th: Theme) -> Dict[str, Any]:
     xs, ys = route_polyline(inst, route)
     cumulative = _cumulative(xs, ys)
     energy = route_energy(inst, route)
     return {
         "drone": drone,
-        "color": PALETTE[drone % len(PALETTE)],
+        "color": th.color(drone),
+        # The second channel: a route keeps its identity in greyscale and
+        # under any colour-vision deficiency. Indexed on `drone`, exactly as
+        # the colour is, so the two never disagree.
+        "dash": th.dash(drone),
         "route": [int(c) for c in route],
         "polyline": [[float(x), float(y)] for x, y in zip(xs, ys)],
         "cumulative": [float(c) for c in cumulative],
@@ -56,16 +62,22 @@ def _flight(inst: DRPInstance, drone: int, route: List[int]) -> Dict[str, Any]:
 def build_playback_data(inst: DRPInstance,
                         sol: Solution,
                         separation: Optional[float] = None,
-                        title: Optional[str] = None) -> Dict[str, Any]:
+                        title: Optional[str] = None,
+                        theme=None) -> Dict[str, Any]:
     """Everything the playback page needs, as one JSON-serialisable dict.
 
     `separation` is the distance below which two airborne drones are flagged as
     a conflict; defaults to 3% of the field span, matching
     `drp.viz.animate.animate_routes` so the GIF and the web page agree on what
     counts as a conflict.
+
+    `theme` is a name or a `drp.viz.theme.Theme`; the whole thing goes into the
+    payload under `theme`, and the page writes it into its CSS custom
+    properties at startup rather than carrying a palette of its own.
     """
+    th = resolve(theme)
     used = [(k, r) for k, r in enumerate(sol.routes) if r]
-    flights = [_flight(inst, k, r) for k, r in used]
+    flights = [_flight(inst, k, r, th) for k, r in used]
 
     co = inst.coords
     span = max(float(np.ptp(co[:, 0])), float(np.ptp(co[:, 1]))) or 1.0
@@ -78,6 +90,7 @@ def build_playback_data(inst: DRPInstance,
     return {
         "instance": instance_to_dict(inst),
         "solution": solution_to_dict(inst, sol),
+        "theme": th.to_dict(),
         "flights": flights,
         "meta": {
             "title": title or f"{inst.name} -- fleet playback",

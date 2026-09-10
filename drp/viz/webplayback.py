@@ -37,14 +37,20 @@ def render_playback_html(inst: DRPInstance,
                          path: PathLike = "playback.html",
                          title: Optional[str] = None,
                          separation: Optional[float] = None,
-                         vision: Optional[Dict[str, Any]] = None) -> Path:
+                         vision: Optional[Dict[str, Any]] = None,
+                         theme=None) -> Path:
     """Write the interactive flight-playback page for `sol` to `path`.
 
     `vision` is an optional `drp.viz.treedata.build_vision_data` payload; pass
     one to turn on Solver Vision, which draws the partial routes a traced B&B
     search considered and rejected at each point along a drone's route.
+
+    `theme` is a name or a `drp.viz.theme.Theme`; it travels inside the payload
+    and the page writes it into its CSS custom properties at startup, so there
+    is still exactly one palette in the system and it lives in Python.
     """
-    data = build_playback_data(inst, sol, separation=separation, title=title)
+    data = build_playback_data(inst, sol, separation=separation, title=title,
+                               theme=theme)
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     # `</` would otherwise let a string field (e.g. an imported instance name)
     # break out of the enclosing <script> tag.

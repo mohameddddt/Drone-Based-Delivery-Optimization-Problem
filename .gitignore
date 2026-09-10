@@ -14,3 +14,6 @@ data/generated/
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Browser tests cache GSAP here rather than hitting the CDN on every run.
+tests/browser/.cache/

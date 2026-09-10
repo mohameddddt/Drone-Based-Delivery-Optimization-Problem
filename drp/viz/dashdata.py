@@ -40,14 +40,15 @@ from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
 from drp.instances.io import instance_to_dict, solution_to_dict
 from drp.meta.trace import MetaTrace
-from drp.viz.static import PALETTE
+from drp.viz.theme import resolve
 
-#: Colour per method, held constant across every panel on the page.
-METHOD_COLOR = {
-    "ga": "#8064A2",
-    "sa": "#C0504D",
-    "alns": "#2E75B6",
-}
+#: Colour per method, held constant across every panel on the page. It now
+#: comes from the active theme rather than being fixed here -- purple / red /
+#: blue was the old set, and its red and blue collapsed onto each other under
+#: protanopia. Kept as a module constant because it is part of this module's
+#: public surface; `build_dashboard_data` reads the theme, not this.
+METHOD_COLOR = {m: resolve().method_color(m)
+                for m in ("ga", "sa", "alns")}
 #: What one step means, per method -- the axis label has to say this or the
 #: step axis is actively misleading.
 STEP_LABEL = {
@@ -83,13 +84,19 @@ def build_dashboard_data(inst: DRPInstance,
                          runs: Sequence[MethodRun],
                          reference: Optional[float] = None,
                          reference_label: str = "",
-                         title: Optional[str] = None) -> Dict[str, Any]:
+                         title: Optional[str] = None,
+                         theme=None) -> Dict[str, Any]:
     """Everything the dashboard needs, as one JSON-serialisable dict.
 
     `reference`, when given, is a known-good energy to draw as a floor across
     every panel -- typically B&B's proven optimum, which turns "it converged"
     into "it converged to the right answer" or, more usefully, does not.
+
+    `theme` is a name or a `drp.viz.theme.Theme`. Each method carries a dash
+    pattern beside its colour, so three curves crossing in one chart stay three
+    curves without relying on hue.
     """
+    th = resolve(theme)
     if not runs:
         raise ValueError("no runs to plot; pass at least one traced run")
     for r in runs:
@@ -120,7 +127,8 @@ def build_dashboard_data(inst: DRPInstance,
         methods.append({
             "method": r.method,
             "label": r.method.upper(),
-            "color": METHOD_COLOR.get(r.method, PALETTE[len(methods) % len(PALETTE)]),
+            "color": th.method_color(r.method, len(methods)),
+            "dash": th.method_dash(r.method),
             "step_label": STEP_LABEL.get(r.method, "step"),
             "seed": int(r.seed),
             "best_energy": _f(r.best_energy),
@@ -136,6 +144,7 @@ def build_dashboard_data(inst: DRPInstance,
 
     return {
         "instance": instance_to_dict(inst),
+        "theme": th.to_dict(),
         "methods": methods,
         "reference": _f(reference),
         "reference_label": reference_label,

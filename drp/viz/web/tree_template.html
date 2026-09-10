@@ -16,6 +16,8 @@
     --restricted:#8E2F63; --caution:#B23A22; --warn:#9C6B12; --success:#3E7A3C;
     --accent:#2C4F55; --accent-2:#3E7078; --accent-ink:#FFFFFF;
     --live:#2F6E60;
+    /* Overwritten from the theme's ramp at startup; this is the fallback. */
+    --ramp-css:linear-gradient(90deg,#3A8674,#B08830,#8E2F63);
     --f-display:'Familjen Grotesk',system-ui,sans-serif;
     --f-mono:'Courier Prime',ui-monospace,Consolas,monospace;
     --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:22px; --sp-6:30px;
@@ -82,9 +84,17 @@
   .keylegend span{display:flex;align-items:center;gap:4px;white-space:nowrap;}
   .keylegend i{width:9px;height:9px;border-radius:50%;display:inline-block;}
   .keylegend i.ring{background:transparent;border:1.6px solid currentColor;}
+  /* The second channel for node status (roadmap 2.5): four ring colours become
+     four ring *styles* as well, matching the SVG dash patterns below. */
+  .keylegend i.ring.dash-inc{border-style:dashed;}
+  .keylegend i.ring.dash-inf{border-style:dotted;}
+  .keylegend i.ring.dash-out{border-style:double;border-width:3px;}
   .ramp{display:flex;align-items:center;gap:6px;}
+  /* Painted from the theme's ramp at startup -- see `applyTheme` -- because
+     the ramp *is* the encoding on this page, and a legend showing a different
+     one would be worse than no legend. */
   .ramp .bar{width:96px;height:7px;border-radius:2px;
-    background:linear-gradient(90deg,#2F6E60,#A8802A,#8E2F63);border:1px solid var(--line-2);}
+    background:var(--ramp-css);border:1px solid var(--line-2);}
 
   /* ---------- rail ---------- */
   .rail{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0;}
@@ -218,9 +228,9 @@
           <div class="plate keylegend">
             <span class="ramp"><span class="bar"></span><span id="rampLabel">bound</span></span>
             <span style="color:var(--restricted)"><i class="ring"></i>pruned</span>
-            <span style="color:var(--success)"><i class="ring"></i>new incumbent</span>
-            <span style="color:var(--muted-2)"><i class="ring"></i>infeasible / dominated</span>
-            <span style="color:var(--warn)"><i class="ring"></i>timed out</span>
+            <span style="color:var(--success)"><i class="ring dash-inc"></i>new incumbent</span>
+            <span style="color:var(--muted-2)"><i class="ring dash-inf"></i>infeasible / dominated</span>
+            <span style="color:var(--warn)"><i class="ring dash-out"></i>timed out</span>
           </div>
         </div>
       </div>
@@ -319,13 +329,41 @@ const NS = "http://www.w3.org/2000/svg";
 let reduced = false;
 gsap.matchMedia().add("(prefers-reduced-motion: reduce)", () => { reduced = true; });
 
-const C = {
+// ---------- theme (roadmap 2.5) ----------
+// Every colour that carries a *meaning* lives in Python (`drp/viz/theme.py`)
+// and travels in the payload, so `--theme safe` / `--theme chart` switches this
+// page, the matplotlib figures and the other two pages together; there is no
+// second copy of a palette anywhere in the repository.
+const THEME = (DATA && DATA.theme) || null;
+// CSS custom property <- theme token. The stylesheet above is written against
+// these names, so pushing the tokens through here is what makes the HTML
+// chrome and the SVG agree on one palette.
+const CSS_VARS = {
+  "--paper":"paper", "--paper-2":"paper2", "--panel":"panel", "--ink":"ink",
+  "--muted":"muted", "--muted-2":"muted2", "--line":"line", "--line-2":"line2",
+  "--restricted":"restricted", "--caution":"caution", "--warn":"warn",
+  "--success":"success", "--accent":"accent", "--accent-2":"accent2",
+  "--water":"water",
+};
+function applyTheme(tokens){
+  if (!tokens) return;
+  const root = document.documentElement.style;
+  for (const k in CSS_VARS){ if (tokens[CSS_VARS[k]]) root.setProperty(k, tokens[CSS_VARS[k]]); }
+  if (tokens.accent2) root.setProperty("--live", tokens.accent2);
+  const stops = (THEME && THEME.ramp) || [];
+  root.setProperty("--ramp-css", stops.length >= 2
+    ? `linear-gradient(90deg,${stops.join(",")})`
+    : "linear-gradient(90deg,#3A8674,#B08830,#8E2F63)");
+}
+
+const C = Object.assign({
   ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8", line2:"#BFC2B3",
   paper:"#EDEBE1", paper2:"#E2DFD2", panel:"#FBFAF5",
-  accent:"#2C4F55", accent2:"#3E7078", live:"#2F6E60",
-  restricted:"#8E2F63", caution:"#B23A22", warn:"#9C6B12", success:"#3E7A3C",
-  water:"#BCD3D8",
-};
+  accent:"#2C4F55", accent2:"#3E7078", restricted:"#8E2F63", caution:"#B23A22",
+  warn:"#9C6B12", success:"#3E7A3C", water:"#BCD3D8",
+}, THEME ? THEME.tokens : {});
+C.live = C.accent2;
+applyTheme(THEME ? THEME.tokens : null);
 const MOTION = {fast:.18, normal:.34, cine:.85, ui:"power2.out"};
 
 const clamp = (v,a,b) => v<a?a:v>b?b:v;
@@ -479,9 +517,20 @@ function promiseOf(n){
   if (den <= 1e-9) return n.lower_bound <= n.incumbent + 1e-9 ? 1 : 0;
   return clamp((n.incumbent - n.lower_bound) / den, 0, 1);
 }
+// The ramp's stops come from the theme (roadmap 2.5). The chart theme's
+// teal -> amber -> magenta is *not* colour-blind safe: simulated, its far end
+// lands closer to its near end than its middle does, so the ramp folds back and
+// the highest bounds read like the lowest. `--theme safe` supplies one that is
+// monotone under all three deficiencies.
+const RAMP_HEX = (THEME && THEME.ramp && THEME.ramp.length >= 2)
+  ? THEME.ramp : ["#3A8674", "#B08830", "#8E2F63"];
+const RAMP_RGB = RAMP_HEX.map(h => {
+  const v = h.replace("#", "");
+  return [0, 2, 4].map(i => parseInt(v.slice(i, i + 2), 16));
+});
 function rampColor(t){
   t = clamp(t, 0, 1);
-  const stops = [[0,[58,134,116]],[0.5,[176,136,48]],[1,[142,47,99]]];
+  const stops = RAMP_RGB.map((c, i) => [i / (RAMP_RGB.length - 1), c]);
   let a = stops[0], b = stops[stops.length-1];
   for (let i=0;i<stops.length-1;i++){
     if (t >= stops[i][0] && t <= stops[i+1][0]){ a = stops[i]; b = stops[i+1]; break; }
@@ -494,6 +543,13 @@ function boundColor(n){
   if (spanLB <= 0) return rampColor(0);
   return rampColor((n.lower_bound - rootBound) / spanLB);
 }
+// Ring dash patterns, in screen px (the stroke is non-scaling, so these are
+// not multiplied by the camera scale). Supplied by the theme; the literals are
+// the fallback for a payload written before the theme existed.
+const RING_DASH = (THEME && THEME.status_dashes) || {
+  pruned_bound: "", new_incumbent: "3 2", infeasible: "1 2",
+  dominated: "1 2", timeout: "5 2",
+};
 const RING = {
   pruned_bound: C.restricted,
   new_incumbent: C.success,
@@ -544,6 +600,11 @@ NODES.forEach((n, i) => {
   const c = el("circle", {cx:x.toFixed(3), cy:y.toFixed(3), r:r.toFixed(3),
     fill:col, stroke:ring || col, "vector-effect":"non-scaling-stroke",
     "stroke-width": ring ? (n.status === "new_incumbent" ? 2.2 : 1.5) : 1.2});
+  // The second channel: how a node ended is also a ring *pattern*, which
+  // matters more here than anywhere else on the page -- the fill under the
+  // ring is itself a colour from the bound ramp.
+  const rdash = RING_DASH[n.status];
+  if (ring && rdash) c.setAttribute("stroke-dasharray", rdash);
   c.dataset.i = i;
   gNodes.appendChild(c);
   nodeC[i] = c;
@@ -768,6 +829,14 @@ const mUnit = Math.max(mW, mH) / 100;
 const coordOf = {0: DATA.instance.depot};
 DATA.instance.customers.forEach(c => { coordOf[c.id] = c.coord; });
 const PALETTE = DATA.meta.palette;
+// The same second channel the flight replay uses, on the node inspector's
+// mini map: closed route k gets colour k *and* dash pattern k.
+const PALETTE_DASH = (THEME && THEME.dashes) || [];
+function paletteDash(k, unitPx){
+  const v = (PALETTE_DASH[k % (PALETTE_DASH.length || 1)] || "").trim();
+  if (!v) return null;
+  return v.split(/[ ,]+/).map(n => (parseFloat(n) * unitPx).toFixed(2)).join(",");
+}
 
 const mZones = el("g", {}), mLegs = el("g", {fill:"none"}), mPts = el("g", {});
 mini.appendChild(mZones); mini.appendChild(mLegs); mini.appendChild(mPts);
@@ -864,9 +933,12 @@ function drawMini(n, highlight){
   n.closed_routes.forEach((r, k) => {
     if (!r.length) return;
     const col = PALETTE[k % PALETTE.length];
-    mLegs.appendChild(el("path", {d:chainD([0].concat(r, [0])), stroke:col,
+    const attrs = {d:chainD([0].concat(r, [0])), stroke:col,
       "stroke-width":(mUnit*1.0).toFixed(3), "stroke-opacity":"0.95",
-      "stroke-linejoin":"round", "stroke-linecap":"round"}));
+      "stroke-linejoin":"round", "stroke-linecap":"round"};
+    const dk = paletteDash(k, mUnit * 1.6);
+    if (dk) attrs["stroke-dasharray"] = dk;
+    mLegs.appendChild(el("path", attrs));
   });
   if (n.open_route.length){
     const col = PALETTE[n.closed_routes.length % PALETTE.length];

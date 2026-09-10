@@ -33,7 +33,8 @@ import numpy as np
 from drp.core.energy import route_energy, route_weight
 from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
-from drp.viz.static import PALETTE, route_polyline
+from drp.viz.static import route_polyline
+from drp.viz.theme import resolve
 
 PathLike = Union[str, Path]
 
@@ -86,13 +87,20 @@ def animate_routes(inst: DRPInstance,
                    frames: int = 160,
                    fps: int = 20,
                    separation: Optional[float] = None,
-                   title: Optional[str] = None) -> Path:
+                   title: Optional[str] = None,
+                   theme=None) -> Path:
     """Render an animated playback of `sol` to a GIF (or MP4, by extension).
 
     `separation` is the distance below which two drones are flagged as being in
     conflict. Defaults to 3% of the field size.
+
+    `theme` is a name or a `drp.viz.theme.Theme`; each drone takes its colour
+    *and* its trail dash pattern from it, and a conflict is marked by a labelled
+    ring rather than by turning something red, so the flash reads without
+    colour.
     """
-    flights = [_Flight(inst, r, PALETTE[i % len(PALETTE)])
+    th = resolve(theme)
+    flights = [_Flight(inst, r, th.color(i))
                for i, r in enumerate(sol.used_routes())]
     if not flights:
         raise ValueError("solution has no non-empty routes to animate")
@@ -108,14 +116,15 @@ def animate_routes(inst: DRPInstance,
 
     # --- static background -------------------------------------------------
     for poly in inst.nofly_zones:
-        ax.add_patch(plt.Polygon(np.array(poly), closed=True, facecolor="#C0504D",
-                                 alpha=0.16, edgecolor="#C0504D", linestyle="--",
-                                 linewidth=1.2, zorder=1))
+        ax.add_patch(plt.Polygon(np.array(poly), closed=True,
+                                 facecolor=th.restricted, alpha=0.14,
+                                 edgecolor=th.restricted, linestyle="--",
+                                 linewidth=1.2, hatch="//", zorder=1))
     for f in flights:
         ax.plot(f.pts[:, 0], f.pts[:, 1], "-", color=f.colour, alpha=0.18,
                 linewidth=1.0, zorder=1)
-    ax.plot(co[1:, 0], co[1:, 1], "o", color="#444444", markersize=5, zorder=2)
-    ax.plot(co[0][0], co[0][1], "k*", markersize=20, zorder=5)
+    ax.plot(co[1:, 0], co[1:, 1], "o", color=th.muted, markersize=5, zorder=2)
+    ax.plot(co[0][0], co[0][1], "*", color=th.ink, markersize=20, zorder=5)
     for c in range(1, inst.N):
         ax.annotate(str(c), (co[c][0], co[c][1]), fontsize=7, zorder=5,
                     textcoords="offset points", xytext=(4, 4))
@@ -127,15 +136,21 @@ def animate_routes(inst: DRPInstance,
     ax.set_title(title or f"{inst.name} -- fleet playback")
     ax.grid(alpha=0.25)
 
-    trails = [ax.plot([], [], "-", color=f.colour, linewidth=2.2, zorder=3)[0]
-              for f in flights]
-    markers = [ax.plot([], [], "o", color=f.colour, markersize=11,
-                       markeredgecolor="white", markeredgewidth=1.5, zorder=6)[0]
-               for f in flights]
-    conflict = ax.plot([], [], "o", color="red", markersize=22, alpha=0.0,
+    trails = [ax.plot([], [], color=f.colour, linestyle=th.mpl_dash(i),
+                      linewidth=2.2, zorder=3)[0]
+              for i, f in enumerate(flights)]
+    markers = [ax.plot([], [], linestyle="none", marker=th.marker(i),
+                       color=f.colour, markersize=11,
+                       markeredgecolor=th.panel, markeredgewidth=1.5, zorder=6)[0]
+               for i, f in enumerate(flights)]
+    # A hollow ring, not a red disc: the CONFLICT text in the clock says the
+    # same thing in words, so the flash is never the only carrier.
+    conflict = ax.plot([], [], linestyle="none", marker="o",
+                       markerfacecolor="none", markeredgecolor=th.caution,
+                       markeredgewidth=2.5, markersize=24, alpha=0.0,
                        zorder=4)[0]
     clock = ax.text(0.02, 0.98, "", transform=ax.transAxes, va="top",
-                    fontsize=10, family="monospace")
+                    fontsize=10, family="monospace", color=th.ink)
 
     # --- battery panel -----------------------------------------------------
     bar_ax.set_xlim(0, 1)
@@ -149,6 +164,9 @@ def animate_routes(inst: DRPInstance,
 
     bars = bar_ax.barh(range(len(flights)), [1.0] * len(flights),
                        color=[f.colour for f in flights], alpha=0.85)
+    for i, b in enumerate(bars):
+        b.set_hatch(th.hatch(i))
+        b.set_edgecolor(th.panel)
     labels = [bar_ax.text(0.02, i, "", va="center", fontsize=8) for i in
               range(len(flights))]
 

@@ -32,7 +32,7 @@ from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
 from drp.exact.bnb import BnBResult
 from drp.instances.io import instance_to_dict, solution_to_dict
-from drp.viz.static import PALETTE
+from drp.viz.theme import resolve
 
 
 def _pair_key(i: int, j: int) -> str:
@@ -99,12 +99,19 @@ def _pairs_used(trace_nodes: Sequence[Any]) -> Set[Tuple[int, int]]:
 
 def build_tree_data(inst: DRPInstance,
                     res: BnBResult,
-                    title: Optional[str] = None) -> Dict[str, Any]:
+                    title: Optional[str] = None,
+                    theme=None) -> Dict[str, Any]:
     """Everything the tree explorer needs, as one JSON-serialisable dict.
 
     `res` must come from ``solve_bnb(..., trace=True)``; without a trace there
     is nothing to explore and this raises rather than drawing an empty tree.
+
+    `theme` is a name or a `drp.viz.theme.Theme`. It carries the bound ramp as
+    well as the palette: the page interpolates the ramp's stops rather than
+    holding stops of its own, so switching theme switches the encoding the
+    whole tree is coloured by.
     """
+    th = resolve(theme)
     if res.trace is None:
         raise ValueError(
             "BnBResult carries no trace; call solve_bnb(..., trace=True)")
@@ -133,9 +140,10 @@ def build_tree_data(inst: DRPInstance,
             "time": float(res.time),
             "summary": res.summary(),
         },
+        "theme": th.to_dict(),
         "meta": {
             "title": title or f"{inst.name} -- branch & bound",
-            "palette": list(PALETTE),
+            "palette": list(th.palette),
             "bounds": {
                 "xmin": float(co[:, 0].min()), "xmax": float(co[:, 0].max()),
                 "ymin": float(co[:, 1].min()), "ymax": float(co[:, 1].max()),
