@@ -11,3 +11,6 @@ dist/
 
 # Regenerable: one notebook run rebuilds it (~8 MB)
 data/generated/
+
+# Playwright MCP scratch output
+.playwright-mcp/
