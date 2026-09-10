@@ -23,6 +23,7 @@ include = ["drp*"]
 
 [tool.setuptools.package-data]
 "drp.instances" = ["schema/*.json"]
+"drp.viz" = ["web/*.html"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

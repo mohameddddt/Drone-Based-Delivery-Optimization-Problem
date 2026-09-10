@@ -148,6 +148,10 @@ def cmd_show(args) -> int:
         from drp.viz.animate import animate_routes
         gif = animate_routes(inst, sol, args.animate)
         print(f"wrote {gif}")
+    if args.web:
+        from drp.viz.webplayback import render_playback_html
+        page = render_playback_html(inst, sol, args.web)
+        print(f"wrote {page}")
     return 0
 
 
@@ -219,6 +223,8 @@ def build_parser() -> argparse.ArgumentParser:
     sh.add_argument("-o", "--output", default="routes.png")
     sh.add_argument("--animate", metavar="GIF",
                     help="also write an animated playback to this path")
+    sh.add_argument("--web", metavar="HTML",
+                    help="also write an interactive GSAP flight-playback page to this path")
     sh.set_defaults(func=cmd_show)
 
     e = sub.add_parser("export", help="export a solution for other tools")
