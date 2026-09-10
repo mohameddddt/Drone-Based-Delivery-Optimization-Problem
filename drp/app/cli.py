@@ -69,7 +69,8 @@ def cmd_build(args) -> int:
         print("give a scenario file, or --example to write one", file=sys.stderr)
         return 2
 
-    inst = build_scenario_file(args.scenario, dataset=args.dataset)
+    inst = build_scenario_file(args.scenario, dataset=args.dataset,
+                               gazetteer=args.gazetteer)
     out = Path(args.output or "instance.json")
     save_instance(inst, out)
     print(f"wrote {out}  (n={inst.n_customers}, K={inst.n_drones}, "
@@ -208,8 +209,10 @@ def cmd_show(args) -> int:
         print(f"wrote {gif}")
     if args.web:
         from drp.viz.webplayback import render_playback_html
-        page = render_playback_html(inst, sol, args.web)
+        page = render_playback_html(inst, sol, args.web, basemap=args.basemap)
         print(f"wrote {page}")
+        if args.basemap:
+            print(f"  with real geography from {args.basemap}")
     return 0
 
 
@@ -280,6 +283,9 @@ def build_parser() -> argparse.ArgumentParser:
     bd.add_argument("scenario", nargs="?", help="a drp-scenario/v1 JSON file")
     bd.add_argument("--dataset",
                     help="override the delivery-point CSV the scenario samples")
+    bd.add_argument("--gazetteer", metavar="OSM",
+                    help="an .osm extract whose place names scenarios may use "
+                         "(offline geocoding; no network)")
     bd.add_argument("--example", action="store_true",
                     help="write an example scenario to --output and exit")
     bd.add_argument("-o", "--output")
@@ -337,6 +343,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also write an animated playback to this path")
     sh.add_argument("--web", metavar="HTML",
                     help="also write an interactive GSAP flight-playback page to this path")
+    sh.add_argument("--basemap", metavar="OSM_OR_JSON",
+                    help="draw real streets on the web page, from an .osm "
+                         "extract or a prebuilt drp-basemap/v1 .json "
+                         "(geodesic instances only)")
     sh.set_defaults(func=cmd_show)
 
     e = sub.add_parser("export", help="export a solution for other tools")

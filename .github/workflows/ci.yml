@@ -53,6 +53,13 @@ jobs:
           drp import tests/data/toy-solomon.txt --customers 8 -o /tmp/solomon.json
           drp solve /tmp/toy.json --method bnb --time 30
 
+      # The replay page in a real browser (roadmap §3.4). Ubuntu runners ship
+      # Chrome; where they do not, the tests skip rather than fail, so this
+      # step reports what was actually covered.
+      - name: Rendered-page smoke test
+        run: |
+          python -m pytest -q tests/test_web_headless.py -rs
+
       - name: Experiment pipeline smoke test
         run: |
           python run_experiments.py --quick

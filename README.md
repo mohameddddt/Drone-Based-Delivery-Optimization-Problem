@@ -10,8 +10,9 @@ Ships with two mathematical formulations, an NP-hardness proof, an exact Branch 
 with an anytime dual bound, three metaheuristics, visibility-graph routing around polygonal
 no-fly zones, a reproducible benchmark generator, instances built from a real last-mile
 coordinate dataset, CVRPLIB/Solomon import, QGroundControl mission export, an experiment
-harness, and 367 tests -- including brute-force verification of the pieces everything
-else rests on, and 74 published CVRPLIB optima reproduced exactly.
+harness, and 392 tests -- including brute-force verification of the pieces everything
+else rests on, 74 published CVRPLIB optima reproduced exactly, and the replay page loaded
+in a real browser.
 
 ```bash
 pip install -e ".[dev]"
@@ -125,15 +126,16 @@ Strengthening it — Held–Karp 1-trees, LP relaxation, column generation — i
 drp/
   core/        instance · solution · energy · feasibility
   geometry/    distance · nofly (polygons) · visibility (detour routing)
+               osm (OpenStreetMap extracts)
   instances/   generator · geodata (real coordinates) · scenario (recipes)
                benchmarks (CVRPLIB/Solomon import) · qgc (mission export)
                io (JSON formats) · schema/
   exact/       bnb (+ dual bound) · bounds · milp_flow (Formulation 2)
   meta/        encoding · split · construct · ga · sa · alns
   eval/        runner · store (SQLite) · metrics · stats (significance)
-  viz/         static · animate · webdata · webplayback
+  viz/         static · animate · webdata · webplayback · basemap (real maps)
   app/         cli
-tests/         367 tests, incl. brute-force and published-optimum verification
+tests/         392 tests, incl. brute-force, published-optimum and browser checks
 report/        report.tex + generated tables
 results/       runs.db, CSVs, figures
 data/source/   the supplied last-mile coordinate dataset
@@ -182,7 +184,13 @@ every import states explicitly rather than leaving implied.
 `drp export --format qgc` writes one QGroundControl `.plan` per flying drone — take off,
 each stop in the solved order, return, land — with no-fly polygons as exclusion geofences.
 A planar instance needs `--anchor LAT,LON[,M_PER_UNIT]` to say where its origin sits on
-Earth; geodesic instances need nothing.
+Earth; geodesic instances need nothing. Verified by loading one into QGroundControl.
+
+`drp show ... --web flight.html --basemap city.osm` draws the replay over **real
+OpenStreetMap geography** instead of the synthetic chart the page invents. Fetch an extract
+for the area you care about — `https://overpass-api.de/api/map?bbox=<w>,<s>,<e>,<n>`, XML
+rather than `.pbf` — and the parser is standard-library only. The same extract gives
+scenarios offline place-name lookup (`drp build --gazetteer city.osm`).
 
 ## File formats
 
@@ -232,7 +240,7 @@ pytest -q                  # everything (~2.5 min)
 pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 ```
 
-367 tests with the benchmark data present, 217 without it. The ones that matter most:
+392 tests with the third-party data present, 241 without it. The ones that matter most:
 
 | Test | What it proves |
 |---|---|
@@ -247,6 +255,7 @@ pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 | `test_geodata` | Geographic instances are reproducible from the untouched source CSV, their distances really are haversine kilometres, and every one of them has a feasible solution. |
 | `test_qgc` | An exported mission is the solved route in the solved order, and a planar instance cannot be exported without an anchor saying where on Earth it is. |
 | `test_cvrplib_published` | **The only non-self-referential check in the project.** 74 CVRPLIB optimal solutions, produced by other people with other code, all reproduce exactly under `total_energy` and all pass `is_feasible`. |
+| `test_web_headless` | The replay page loaded in real Chrome — layers drawn, console clean — plus a deliberately broken page the harness must catch. |
 
 ## Status
 

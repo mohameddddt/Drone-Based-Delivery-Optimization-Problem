@@ -106,7 +106,7 @@ def test_a_no_fly_circle_is_circular_on_the_ground_not_in_degree_space():
 
     coords = np.array([(lat, lon)] + [(a, b) for a, b in poly])
     spokes = haversine_matrix(coords)[0, 1:]
-    assert spokes == pytest.approx(radius, rel=0.01)
+    assert spokes == pytest.approx(radius, rel=0.001)
 
     # The degree-space shape really is wider than it is tall at that latitude.
     height = max(p[0] for p in poly) - min(p[0] for p in poly)

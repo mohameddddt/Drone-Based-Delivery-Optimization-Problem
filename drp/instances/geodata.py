@@ -37,6 +37,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from drp.core.instance import DRPInstance
+from drp.geometry.distance import KM_PER_DEGREE
 from drp.geometry.nofly import Polygon, point_in_any
 
 PathLike = Union[str, Path]
@@ -46,7 +47,9 @@ PathLike = Union[str, Path]
 DEFAULT_DATASET = (Path(__file__).resolve().parents[2]
                    / "data" / "source" / "Last_Mile_Delivery_Coordinates.csv")
 
-KM_PER_DEGREE_LAT = 110.574
+#: Kept as a name because callers use it; the value comes from the same sphere
+#: `haversine_matrix` measures on, so degrees and kilometres agree everywhere.
+KM_PER_DEGREE_LAT = KM_PER_DEGREE
 
 
 @dataclass(frozen=True)

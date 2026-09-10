@@ -14,8 +14,9 @@ browser-driven design review. **§3's data layer has now landed**: a scenario bu
 instances built from the supplied Pontianak coordinates, CVRPLIB/Solomon import and
 QGroundControl mission export. The importer has since been run in anger on the Augerat
 A/B/P sets, which gave the project its first external correctness evidence and settled §6's
-open question about GA versus ALNS. P2's remaining pieces (B&B tree explorer, SA/GA
-dashboards, SVG export), §3's networked half (address geocoding, OSM basemaps), the §7–8
+open question about GA versus ALNS; and an OSM extract has replaced the replay page's
+invented city with the real one, which is also how three geodesic defects in that page were
+found. P2's remaining pieces (B&B tree explorer, SA/GA dashboards, SVG export), the §7–8
 service and most of P5 are not started.
 
 | Phase | Status |
@@ -73,7 +74,7 @@ the *recipe* an instance is built from rather than the instance itself.
 
 ### §1.4 Tests
 
-**367 tests** with the benchmark data present, 217 without it (the CVRPLIB checks skip when the third-party files are absent, which is what CI sees). The ones the roadmap called for specifically:
+**392 tests** with the third-party data present, 241 without it (the CVRPLIB checks skip when those files are absent, and the browser checks skip where no Chrome is installed). The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -90,6 +91,8 @@ the *recipe* an instance is built from rather than the instance itself.
 | **Geographic instances** | `test_geodata.py` | Reproducible from the untouched CSV and independent of row order; distances are haversine kilometres; every instance in the suite has a feasible solution. |
 | **Scenario recipes** | `test_scenario.py` | A named place resolves to that district's centroid, declared demands survive, a mistyped key is refused, and a synthetic scenario reproduces `generate_instance` exactly. |
 | **External validation** | `test_cvrplib_published.py` | 74 CVRPLIB optimal solutions, produced by other people with other code, all reproduce **exactly** under `total_energy` and all pass `is_feasible`. The only check in the project that is not self-referential. |
+| **The rendered page** | `test_web_headless.py` | The replay page loaded in real Chrome: layers present, geometry drawn, console clean -- and a deliberately sabotaged payload that the harness must catch. The first test of the page's JavaScript, which was previously uncovered. |
+| **Real geography** | `test_osm.py` | An OSM extract reads into the right layers, buildings and footways are dropped, the gazetteer prefers the larger place, and a basemap covers the instance it was cut for. |
 | **Mission export** | `test_qgc.py` | The waypoints are the solved route in the solved order; a planar instance cannot be exported without an anchor; the anchor's projection measures the right number of metres. |
 
 Bound validity deserves its billing: a bound that overestimates prunes the branch holding
@@ -320,12 +323,13 @@ GA and SA do not expose intermediate search states, and the brief's own rule —
 fabricate what the solver does not produce — makes faking it the wrong move. It is blocked
 on §2.4's trace instrumentation, not on the front end.
 
-On coverage, stated plainly: `tests/test_viz_web.py` (6 tests) pins the **Python** side —
+On coverage: `tests/test_viz_web.py` pins the **Python** side —
 one flight per used route, cumulative distance agreeing with `route_energy`/`route_weight`,
 detour-aware polylines, the separation default matching `animate_routes`, and placeholder
-substitution. **There is still no browser test harness**, so none of the JavaScript above
-is covered by CI; the four bugs listed were found by driving the page in Playwright by
-hand. A headless smoke test of the rendered page is the obvious next hardening step.
+substitution. There was no browser test harness when this was written, and the four bugs
+listed were found by driving the page by hand. **That gap is now closed** —
+`tests/test_web_headless.py` loads the page in real Chrome (see §3.4 below) — though it
+covers rendering, not interaction: nothing yet drags the camera or scrubs the timeline.
 
 Earlier correctness bug, still worth recording: several lookups (`rows[f.drone]`,
 `DATA.flights[id]`, `DATA.solution.routes[id]`) originally assumed array index equals drone
@@ -632,18 +636,98 @@ constraint the solver respected.
 - The format carries no payload, no battery and no energy model, so the command prints a
   `mission_summary` of exactly those numbers beside the files it wrote — the flight plan
   and the optimisation result can then be reconciled by hand.
-- **Not verified in QGroundControl itself.** There is no ground station on this machine.
-  The files match the documented `.plan` schema and parse as JSON, and the tests check the
-  command sequence, the waypoint order and the anchor's metre-scale projection against
-  haversine — but nobody has loaded one into QGC.
+- **Verified in QGroundControl**, on Windows, from a file this pipeline produced end to
+  end (`drp build --example` → `build` → `solve --method alns` → `export --format qgc`).
+  QGC loads `pontianak-south-20_drone1.plan` without error and reports **7 mission items**
+  — takeoff, four delivery waypoints, the return leg, land — in the solved order, drawn
+  over the actual streets of Pontianak South with a 7,882 ft flight and a flat 230 ft AMSL
+  profile (60 m cruise over ~4 m terrain). That is the whole chain confirmed by something
+  outside this repository: real coordinates, real order, real altitudes.
+- **One part still unconfirmed: the exclusion geofence.** The example scenario's restricted
+  circle sits about 2.2 km north-west of the depot, outside the frame at the zoom the
+  mission loads at, and QGC keeps fence geometry in a separate editor from mission items.
+  The polygon is in the file and `test_qgc.py` checks its shape and `inclusion: false`, but
+  no one has yet seen QGC render it.
 
-### Deliberately not done: geocoding and OSM basemaps
+### §3.4 Real basemaps and offline geocoding
 
-Both need network access, which this environment does not have, and a stub that pretends
-otherwise would be worse than an absence. What *is* there is a **gazetteer** — district
-names resolved to their own centroids, computed from the dataset — which is what a scenario
-file needs to say "put the depot in Pontianak South". The code labels it as such rather
-than calling it geocoding.
+This was the one part of §3 written off as impossible here — "both need network access, and
+a stub that pretends otherwise would be worse than an absence". That was true of *calling*
+a service. It was not true of the data: one Overpass URL produces an OSM extract of a
+bounding box, and everything after that is local.
+
+`data/osm/pontianak.osm` is 209 MB of OSM XML covering `109.26…109.40 E, −0.11…0.05 N` —
+the box the delivery dataset lives in. It is not committed, for the same reason the
+benchmark sets are not.
+
+**Reading it.** `drp/geometry/osm.py` streams the file with `xml.etree.iterparse` and
+nothing else — no `osmium`, no `protobuf`, which is exactly why the fetch instructions ask
+for XML rather than `.pbf`. Two passes: the first records which ways are worth keeping and
+which node ids they reference, the second resolves only those coordinates. One pass holding
+every node would be simpler and several hundred megabytes of dictionary. **16 seconds** for
+the whole file, yielding 14,481 roads, 282 waterways, 30 water areas, 419 green areas, 104
+built-up areas and 36 named places.
+
+**Cutting a basemap.** `drp/viz/basemap.py` clips to the instance's neighbourhood, thins
+each polyline with Douglas–Peucker at a 6 m tolerance (well under a screen pixel at the
+zooms the page uses), rounds coordinates to about a metre and caps the residential layer.
+`drp-basemap/v1` for the twenty-stop example is **248 KB**, which embeds in the
+self-contained HTML page without ceremony. Buildings are dropped outright: the extract has
+193,831 of them, and the land-use polygons already say where the built-up areas are.
+
+**Three defects the real geography exposed in the existing page.** The replay page was
+built before any instance had real coordinates, and nobody had opened it on a geodesic one,
+because until this branch there were none.
+
+1. **The map was transposed.** The page's world coordinates were the instance's raw ones,
+   so a `(lat, lon)` instance drew latitude along x — north pointing right, longitude down
+   the screen.
+2. **Flights were measured in degrees.** `cumulative` summed Euclidean distances between
+   `(lat, lon)` pairs, mixing two differently sized units into a number that was neither
+   kilometres nor anything else. The "flown distance" readout and the separation threshold
+   both inherited it.
+3. **The kilometres-per-degree constant disagreed with the solver's own metric** by 0.55%.
+   `geodata` used 110.574 (the meridian figure) while `haversine_matrix` measures on a
+   6371.0088 km sphere. Caught by a test asserting the flown polyline is at least as long
+   as the straight-line route it follows — it came out *shorter*, which is impossible. Both
+   now derive from `drp.geometry.distance.KM_PER_DEGREE`, one constant on one sphere.
+
+The fix for the first two is a **local tangent-plane projection**, in kilometres east and
+north of the depot, emitted as data (`meta.projection`) rather than applied in place: the
+payload's coordinates stay the instance's own, and Python and the page each derive the
+world from the same numbers. The page's scale bar now reads **1 km** instead of "1 units",
+its grid counts kilometres, and its coordinate readout gives real latitude and longitude.
+
+**Offline geocoding.** `place_gazetteer` turns the extract's settlement nodes into
+name → coordinate, and a scenario's `{"place": ...}` resolves against it as well as the
+dataset's districts (districts win a clash — they are the vocabulary the customers were
+sampled from). So `{"place": "Bansir Darat"}` now finds the actual kelurahan. That is
+geocoding: no service, no network, no key — and it knows only names the extract contains,
+which is the honest limit rather than a hidden one. Street addresses are still not handled.
+
+**Verified by looking at it, twice.** The first render had a visible edge down the east
+side where the streets stopped mid-frame: the basemap margin was a fixed 0.8 km while the
+page pads by 14% and then widens to the panel's aspect ratio. The margin now scales with
+the instance. The second had `BANGKABELITUNG` printed half off the sheet, because the real
+place labeller had not inherited the frame-edge guard the invented one used. Neither would
+have been visible from the source.
+
+**And the browser test harness that was missing.** PROGRESS has listed "a headless smoke
+test of the rendered page" as the obvious next hardening step since the replay landed;
+`tests/test_web_headless.py` and `tools/headless_check.py` are it. They drive whatever
+Chrome or Edge is installed — no Playwright, no browser download — with a stub standing in
+for the GSAP CDN script, and assert on what the page actually built: the layers exist, the
+map carries geometry, the console is clean. One of the three tests deliberately sabotages
+the payload and requires the harness to *notice*, so the suite cannot quietly pass on a
+blank page. They skip where no browser exists, which is honest about what a given CI runner
+covers.
+
+**What is still missing, specifically.** Relations are not parsed, and the extract holds
+three `multipolygon` water bodies — the Kapuas's banks among them. So Pontianak's defining
+river draws as a centreline rather than the wide band it is. Street names are not drawn
+either (thousands of labels would need collision handling at every zoom), and administrative
+boundary relations, which would give real district outlines, are ignored for the same
+reason. None of these is hard; none is done.
 
 ### A geometry bug this surfaced
 
@@ -788,7 +872,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **367 tests pass** — 350 fast (~40 s), 17 slow (~50 s). Without the third-party benchmark files that is 217; the CVRPLIB checks skip rather than fail.
+- **392 tests pass** — 375 fast (~52 s), 17 slow (~50 s). Without the third-party benchmark files that is 241; those checks skip rather than fail.
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -811,6 +895,9 @@ Everything below was executed, not assumed.
 - The visibility distances of all six zone instances are unchanged, to floating-point
   equality, by this branch's `segment_blocked` fix.
 - The CLI runs build → solve → export --format qgc, and import → solve, end to end.
+- The replay page loads in real Chrome and draws its layers, with a clean console — and the
+  harness that checks this is itself checked, by feeding it a deliberately broken page.
+- A QGroundControl mission produced by this pipeline loads in QGroundControl.
 - All 74 published CVRPLIB optima reproduce exactly under this project's objective, pass
   its feasibility checker, and are never beaten by any of its five methods.
 - Random giant tours Split into a *feasible* solution 0.4–0.6% of the time on the
@@ -840,6 +927,13 @@ Everything below was executed, not assumed.
   generator never produces a tight instance; seven of the 74 Augerat instances do. Fixed
   with a bin-packing fallback that fires only where the existing constructions return
   nothing, so no committed number moves.
+- **The replay page drew geodesic instances sideways**, with latitude along x and north
+  pointing right, and measured their flights in degrees. Invisible for as long as the page
+  had only synthetic instances to draw, which was until this branch created geodesic ones.
+- **Degrees and kilometres disagreed by 0.55%** between `geodata` (110.574, the meridian
+  figure) and `haversine_matrix` (a 6371.0088 km sphere) — enough to make a flown polyline
+  measure *shorter* than the straight line it follows, which is impossible. One constant
+  now, on one sphere.
 - **A no-fly zone a drone could fly straight through** (described above under §3) — a
   segment entering and leaving a polygon through two *vertices* passed the blocking test.
   Found by a symmetric scenario-builder test, not by the random-geometry ones.
@@ -873,7 +967,7 @@ Listed so nothing looks finished that isn't.
 | §2.4 | B&B tree explorer, SA/GA dashboards | The data is in the store; the views are not built |
 | §2.5 | SVG/TikZ export, colour-blind-safe theme | Figures are PNG only |
 | §3.1–3.3, §3.5 | Scenario builder, real geography, CVRPLIB/Solomon import, QGC export | ✅ Landed — see "P4 — Use it" above. No third-party benchmark files are committed, so the literature comparison is unblocked rather than done |
-| §3.4 | Address geocoding, OSM basemaps | Not done: both need network access. The district gazetteer is dataset-derived and labelled as such |
+| §3.4 | OSM basemaps, offline geocoding | ✅ Landed — a local extract, a streaming stdlib parser, real streets in the replay page and place names resolved without a service. Street addresses, water multipolygons and boundary relations are still not handled |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |
 | §4.3–4.8 | Climb/hover energy, time windows, multi-trip, deconfliction, uncertainty, multi-objective | P5 |
 | §5.1 | Held–Karp / LP / column-generation bounds | Assignment-relaxation bound landed and moved the ceiling from `n ≈ 9` to `n ≈ 10`; a subtour-eliminating bound (Held–Karp 1-tree, LP relaxation) is the remaining, bigger step |
