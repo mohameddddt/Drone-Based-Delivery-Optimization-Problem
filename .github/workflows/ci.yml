@@ -41,6 +41,18 @@ jobs:
           drp export /tmp/sol.json --instance /tmp/inst.json --format geojson -o /tmp/out.geojson
           drp show /tmp/sol.json --instance /tmp/inst.json -o /tmp/routes.png --web /tmp/flight.html
 
+      # Roadmap §3: the scenario builder, the real-geography dataset, the
+      # benchmark importers and the flight-plan export, end to end.
+      - name: Scenario, import and mission-export smoke test
+        run: |
+          drp build --example -o /tmp/scenario.json
+          drp build /tmp/scenario.json -o /tmp/geo.json
+          drp solve /tmp/geo.json --method alns --time 5 -o /tmp/geosol.json
+          drp export /tmp/geosol.json --instance /tmp/geo.json --format qgc -o /tmp/missions
+          drp import tests/data/toy-n8-k3.vrp --format cvrplib -o /tmp/toy.json
+          drp import tests/data/toy-solomon.txt --customers 8 -o /tmp/solomon.json
+          drp solve /tmp/toy.json --method bnb --time 30
+
       - name: Experiment pipeline smoke test
         run: |
           python run_experiments.py --quick

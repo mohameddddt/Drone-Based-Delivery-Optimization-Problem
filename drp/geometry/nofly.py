@@ -69,19 +69,58 @@ def point_in_polygon(p: Point, poly: Polygon) -> bool:
     return inside
 
 
-def segment_blocked(a: Point, b: Point, poly: Polygon) -> bool:
-    """True if travelling straight from `a` to `b` enters `poly`'s interior."""
+def boundary_crossings(a: Point, b: Point, poly: Polygon) -> List[float]:
+    """Parameters ``t`` in ``[0, 1]`` where segment ab meets `poly`'s boundary.
+
+    Touching a vertex counts, and so does a collinear overlap with an edge --
+    the point is to find every place the segment could pass from outside to
+    inside, not only the transversal crossings.
+    """
+    ax, ay = a
+    rx, ry = b[0] - ax, b[1] - ay
+    rr = rx * rx + ry * ry
+    if rr < EPS * EPS:
+        return []
+
+    ts: List[float] = []
     n = len(poly)
     for i in range(n):
         c, d = poly[i], poly[(i + 1) % n]
-        if segments_properly_cross(a, b, c, d):
-            return True
+        sx, sy = d[0] - c[0], d[1] - c[1]
+        cax, cay = c[0] - ax, c[1] - ay
+        denom = rx * sy - ry * sx
+        if abs(denom) > EPS:
+            t = (cax * sy - cay * sx) / denom
+            u = (cax * ry - cay * rx) / denom
+            if -EPS <= t <= 1 + EPS and -EPS <= u <= 1 + EPS:
+                ts.append(min(1.0, max(0.0, t)))
+        elif abs(cax * ry - cay * rx) <= EPS:      # collinear with this edge
+            for px, py in (c, d):
+                t = ((px - ax) * rx + (py - ay) * ry) / rr
+                if -EPS <= t <= 1 + EPS:
+                    ts.append(min(1.0, max(0.0, t)))
+    return ts
 
-    # A segment can lie wholly inside without crossing any edge. Sampling the
-    # midpoint catches that, and also the case where both endpoints sit on the
-    # boundary but the chord cuts across the interior (a reflex polygon).
-    mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
-    return point_in_polygon(mid, poly)
+
+def segment_blocked(a: Point, b: Point, poly: Polygon) -> bool:
+    """True if travelling straight from `a` to `b` enters `poly`'s interior.
+
+    The segment is cut at every point where it meets the boundary, and each
+    resulting piece is classified by its own midpoint. Testing only the whole
+    segment's midpoint is not enough: a chord that enters and leaves through
+    two *vertices* -- the depot, a zone and a customer in a straight line, which
+    a symmetric layout produces easily -- crosses no edge properly and can have
+    its midpoint outside the zone, and was previously judged clear.
+    """
+    ts = sorted({0.0, 1.0, *boundary_crossings(a, b, poly)})
+    for t0, t1 in zip(ts, ts[1:]):
+        if t1 - t0 < EPS:
+            continue
+        t = (t0 + t1) / 2.0
+        mid = (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+        if point_in_polygon(mid, poly):
+            return True
+    return False
 
 
 def segment_blocked_by_any(a: Point, b: Point, polys: Sequence[Polygon]) -> bool:

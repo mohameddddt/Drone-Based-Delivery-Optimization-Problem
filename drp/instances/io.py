@@ -48,6 +48,7 @@ def instance_to_dict(inst: DRPInstance) -> Dict[str, Any]:
         },
         "energy": {"alpha": float(inst.alpha), "beta": float(inst.beta)},
         "geodesic": bool(inst.geodesic),
+        "round_distances": bool(inst.round_distances),
         "depot": [float(x) for x in inst.coords[0]],
         "customers": [
             {"id": i,
@@ -98,6 +99,7 @@ def instance_from_dict(d: Dict[str, Any]) -> DRPInstance:
         nofly_zones=[[(float(x), float(y)) for x, y in poly]
                      for poly in nofly.get("polygons", [])],
         geodesic=bool(d.get("geodesic", False)),
+        round_distances=bool(d.get("round_distances", False)),
         seed=d.get("seed"),
     )
 
