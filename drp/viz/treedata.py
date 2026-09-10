@@ -152,43 +152,63 @@ def build_vision_data(inst: DRPInstance,
     """Solver Vision for the flight replay (roadmap §2.4, step 4).
 
     For each route in `sol` and each prefix of that route, find the trace node
-    whose open route *is* that prefix -- i.e. the moment the search stood
-    exactly where this drone stands -- and hand back the options that node
-    considered and rejected. The replay draws those as thin ghost legs against
-    the leg actually flown.
+    at which the search stood exactly where this drone stands, and hand back the
+    options that node considered and rejected. The replay draws those as thin
+    ghost legs against the leg actually flown.
+
+    Two ways of standing "exactly there", and the difference matters. An *exact*
+    match is a node whose closed routes are the drones `sol` has already
+    finished and whose open route is this prefix -- the search building this
+    very solution. Failing that, a *prefix* match is any node that ever had this
+    open route, reached under some other set of closed routes. Exact matches are
+    preferred because a node deep on the winning path is working against a
+    strong incumbent and therefore actually rejects things; the first node to
+    reach a prefix usually has no incumbent worth the name and explores nearly
+    everything, which shows the viewer very little.
 
     This deliberately does not require `sol` to be the trace's own optimum. A
     replay of an ALNS solution against a B&B trace is a legitimate thing to
     want, and where the search never stood at a given prefix there simply is no
-    entry -- `matched` and `total` report that honestly rather than the page
-    inventing an alternative that was never considered.
+    entry -- `matched`, `exact` and `total` report that honestly rather than the
+    page inventing an alternative that was never considered.
     """
     if res.trace is None:
         raise ValueError(
             "BnBResult carries no trace; call solve_bnb(..., trace=True)")
 
-    # First (lowest-id) node standing at each open-route prefix. Lowest id is
-    # the first time the search reached that state, which is the one whose
-    # candidate list is complete rather than already narrowed by a better
-    # incumbent found later.
+    def state_key(closed, open_route) -> Tuple:
+        return (tuple(tuple(r) for r in closed if r), tuple(open_route))
+
+    # Both indexes keep the lowest-id node for a key. For the exact index that
+    # is the only node with that key anyway (the branching generates each
+    # partial assignment once); for the prefix index it is the first time the
+    # search reached that open route.
+    by_state: Dict[Tuple, Any] = {}
     by_prefix: Dict[Tuple[int, ...], Any] = {}
     for n in res.trace.nodes:
-        key = tuple(n.open_route)
-        if key not in by_prefix:
-            by_prefix[key] = n
+        by_state.setdefault(state_key(n.closed_routes, n.open_route), n)
+        by_prefix.setdefault(tuple(n.open_route), n)
+
+    # B&B closes routes in symmetry-broken order (increasing first customer), so
+    # the set of routes already closed when this drone's route was open is the
+    # set whose first customer is smaller than this one's.
+    used = [(k, list(r)) for k, r in enumerate(sol.routes) if r]
 
     steps: List[Dict[str, Any]] = []
-    matched = total = 0
-    for k, route in enumerate(sol.routes):
-        if not route:
-            continue
+    matched = exact = total = 0
+    for k, route in used:
+        earlier = [r for _, r in used if r[0] < route[0]]
         for i in range(len(route)):
             prefix = tuple(route[:i + 1])
             total += 1
-            n = by_prefix.get(prefix)
+            n = by_state.get(state_key(earlier, prefix))
+            is_exact = n is not None
+            if n is None:
+                n = by_prefix.get(prefix)
             if n is None:
                 continue
             matched += 1
+            exact += 1 if is_exact else 0
             tip = prefix[-2] if len(prefix) > 1 else 0
             rejected = [{
                 "customer": int(c.customer),
@@ -205,6 +225,7 @@ def build_vision_data(inst: DRPInstance,
                 "from": int(tip),
                 "node": int(n.id),
                 "depth": int(n.depth),
+                "exact": bool(is_exact),
                 "lower_bound": n.lower_bound if math.isfinite(n.lower_bound) else None,
                 "incumbent": n.incumbent if math.isfinite(n.incumbent) else None,
                 "rejected": rejected,
@@ -219,9 +240,11 @@ def build_vision_data(inst: DRPInstance,
         "steps": steps,
         "paths": leg_paths(inst, sorted(pairs)),
         "matched": matched,
+        "exact": exact,
         "total": total,
         "nodes_explored": int(res.nodes_explored),
         "optimal": bool(res.optimal),
+        "timed_out": bool(res.timed_out),
         "best_energy": (None if math.isinf(res.best_energy)
                         else float(res.best_energy)),
         "truncated": bool(res.trace.truncated),

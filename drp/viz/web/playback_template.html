@@ -1416,13 +1416,17 @@ function visionHtml(id){
       st.rejected.forEach(r => { tally[r.outcome] = (tally[r.outcome]||0) + 1; });
       const why = Object.entries(tally)
         .map(([k, v]) => `${v}&times; ${VIS_LABEL[k] || k}`).join(", ");
-      return `<div class="stp"><span>after ${st.from} &rarr; ${st.customer}</span>` +
+      // a prefix match is the search standing at the same open route but under
+      // different closed routes -- still real, but not this solution's own node
+      return `<div class="stp"><span>after ${st.from} &rarr; ${st.customer}` +
+             `${st.exact ? "" : " <em style='font-style:normal;opacity:.6'>(prefix)</em>"}</span>` +
              `<b>${why}</b></div>`;
     }).join("");
   }
+  const exact = steps.filter(st => st.exact).length;
   return `<div class="vision">
     <div class="hd"><span>Rejected here</span>
-      <em>${steps.length}/${route.length} steps matched</em></div>
+      <em>${steps.length}/${route.length} matched${exact < steps.length ? `, ${exact} exact` : ""}</em></div>
     ${body}</div>`;
 }
 
@@ -1989,6 +1993,21 @@ document.getElementById("solMethod").textContent = DATA.solution.method || "—"
     ["Predicted breaches", String(conflictTotal), conflictTotal ? "bad" : "good"],
     ["Certificate", cert.reason, cert.feasible ? "good" : "bad"],
   ];
+  // Solver Vision comes from its own B&B run, which may have found nothing to
+  // say about this solution at all. That provenance belongs beside the numbers,
+  // not buried in a per-drone panel.
+  if (VISION){
+    const st = VISION.optimal ? "proven optimal"
+             : (VISION.timed_out ? "timed out" : "incomplete");
+    rows.push(["Solver vision", `${VISION.matched}/${VISION.total} steps`,
+               VISION.matched ? (VISION.exact === VISION.total ? "good" : "") : "bad"]);
+    rows.push(["└ from a B&B search of",
+               `${VISION.nodes_explored.toLocaleString()} nodes, ${st}`, ""]);
+    if (VISION.matched && VISION.exact < VISION.total)
+      rows.push(["└ exact-state matches", `${VISION.exact}/${VISION.matched}`, ""]);
+    if (VISION.truncated)
+      rows.push(["└ trace capped", "yes — first nodes only", ""]);
+  }
   document.getElementById("solutionKv").innerHTML = rows.map(([k,v,c]) =>
     `<div class="kv"><span>${k}</span><b class="${c}">${v}</b></div>`).join("");
 })();

@@ -164,8 +164,8 @@ def cmd_show(args) -> int:
         print(f"wrote {page}")
         if vision is not None:
             print(f"  solver vision: {vision['matched']}/{vision['total']} route "
-                  f"steps matched a node in a {vision['nodes_explored']}-node "
-                  f"B&B search")
+                  f"steps matched a node ({vision['exact']} exact) in a "
+                  f"{vision['nodes_explored']}-node B&B search")
     return 0
 
 
