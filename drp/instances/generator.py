@@ -45,6 +45,20 @@ def _nn_route_cost_estimate(inst: DRPInstance) -> float:
     return cost
 
 
+def calibrate_battery(inst: DRPInstance, factor: float) -> float:
+    """The battery budget one drone gets, as a multiple of a reference tour cost.
+
+    Reference is a nearest-neighbour single tour: divided across the whole fleet
+    it would be too tight to be interesting, so the larger of "fleet share" and
+    "share among all but one drone" is used. `factor` then sets how much slack
+    a route has. Shared by the synthetic generator and the geographic one
+    (`drp.instances.geodata`) so the two families are calibrated identically.
+    """
+    nn = _nn_route_cost_estimate(inst)
+    per_drone = nn / max(1, inst.n_drones - 1) if inst.n_drones > 1 else nn
+    return factor * max(nn / inst.n_drones, per_drone)
+
+
 def generate_instance(name: str,
                       n_customers: int,
                       n_drones: int,
@@ -87,9 +101,7 @@ def generate_instance(name: str,
         k = int(nofly_fraction * len(edges))
         inst.nofly_edges = set((e[0], e[1]) for e in edges[:k])
 
-    nn = _nn_route_cost_estimate(inst)
-    per_drone = nn / max(1, inst.n_drones - 1) if inst.n_drones > 1 else nn
-    inst.battery = battery_factor * max(nn / inst.n_drones, per_drone)
+    inst.battery = calibrate_battery(inst, battery_factor)
     return inst
 
 
@@ -148,9 +160,7 @@ def generate_zone_instance(name: str,
         coords=coords, demand=demand, battery=math.inf, payload=payload,
         alpha=alpha, beta=beta, nofly_zones=zones, seed=seed,
     )
-    nn = _nn_route_cost_estimate(inst)
-    per_drone = nn / max(1, inst.n_drones - 1) if inst.n_drones > 1 else nn
-    inst.battery = battery_factor * max(nn / inst.n_drones, per_drone)
+    inst.battery = calibrate_battery(inst, battery_factor)
     return inst
 
 

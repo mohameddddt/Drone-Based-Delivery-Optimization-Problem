@@ -49,6 +49,25 @@ jobs:
           test -s /tmp/routes.svg && test -s /tmp/routes.pdf
           grep -q "<svg" /tmp/routes.svg
 
+      # Roadmap §3: the scenario builder, the real-geography dataset, the
+      # benchmark importers and the flight-plan export, end to end.
+      - name: Scenario, import and mission-export smoke test
+        run: |
+          drp build --example -o /tmp/scenario.json
+          drp build /tmp/scenario.json -o /tmp/geo.json
+          drp solve /tmp/geo.json --method alns --time 5 -o /tmp/geosol.json
+          drp export /tmp/geosol.json --instance /tmp/geo.json --format qgc -o /tmp/missions
+          drp import tests/data/toy-n8-k3.vrp --format cvrplib -o /tmp/toy.json
+          drp import tests/data/toy-solomon.txt --customers 8 -o /tmp/solomon.json
+          drp solve /tmp/toy.json --method bnb --time 30
+
+      # The replay page in a real browser (roadmap §3.4). Ubuntu runners ship
+      # Chrome; where they do not, the tests skip rather than fail, so this
+      # step reports what was actually covered.
+      - name: Rendered-page smoke test
+        run: |
+          python -m pytest -q tests/test_web_headless.py -rs
+
       - name: Experiment pipeline smoke test
         run: |
           python run_experiments.py --quick

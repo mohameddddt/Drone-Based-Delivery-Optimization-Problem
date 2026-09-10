@@ -17,3 +17,10 @@ data/generated/
 
 # Browser tests cache GSAP here rather than hitting the CDN on every run.
 tests/browser/.cache/
+
+# Third-party benchmark data: publicly available, but not ours to redistribute.
+# CVRPLIB: http://vrp.galgos.inf.puc-rio.br
+# Solomon: https://www.sintef.no/projectweb/top/vrptw/solomon-benchmark/
+data/CVRPLIB/
+data/Solomon/
+data/osm/

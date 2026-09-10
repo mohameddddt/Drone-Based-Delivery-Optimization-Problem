@@ -12,10 +12,13 @@ Usage
     python run_experiments.py --quick         # 1 seed, short limits (~1 min)
     python run_experiments.py --tables-only   # rebuild tables from the store
     python run_experiments.py --suite zones   # the polygonal no-fly suite
+    python run_experiments.py --suite geo     # the real Pontianak geography
 
 Outputs
 -------
     results/runs.db                  every run, append-only
+    results/<suite>_runs.db          side suites keep their own store, so
+                                     they never become the report's numbers
     results/experiment_results.csv   one row per instance
     results/summary.csv              one row per method
     results/results.json             the same rows, for the figure script
@@ -37,7 +40,8 @@ from drp.eval.metrics import instance_rows, method_summary
 from drp.eval.runner import run_study
 from drp.eval.stats import SignificanceReport, significance_report
 from drp.eval.store import ResultStore, git_sha
-from drp.instances import default_benchmark_suite, zone_benchmark_suite
+from drp.instances import (default_benchmark_suite, geo_benchmark_suite,
+                           zone_benchmark_suite)
 
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
@@ -227,6 +231,42 @@ def report(recs, summary, methods) -> None:
               f"{'--' if gap is None else f'{gap:8.3f}'}")
 
 
+def imported_suite(args) -> List[Any]:
+    """Load a literature benchmark set from disk (roadmap §3.3).
+
+    The instances keep the importer's faithful defaults -- ``beta = 0``, an
+    unbounded battery, and for CVRPLIB the rounded ``EUC_2D`` metric -- so what
+    runs here is the published problem, and its objective is comparable to the
+    published optimum.
+    """
+    from drp.instances import benchmark_directory
+
+    default_dir = "data/CVRPLIB" if args.suite == "cvrplib" else "data/Solomon"
+    root = Path(args.benchmark_dir or default_dir)
+    if not root.exists():
+        raise SystemExit(
+            f"{root} does not exist. Benchmark files are not committed (they "
+            "are third-party data); fetch them from "
+            "http://vrp.galgos.inf.puc-rio.br (CVRPLIB) or "
+            "https://www.sintef.no/projectweb/top/vrptw/solomon-benchmark/ "
+            "and point --benchmark-dir at them.")
+
+    pattern = "*.vrp" if args.suite == "cvrplib" else "*.txt"
+    kwargs: Dict[str, Any] = {}
+    if args.suite == "solomon" and args.customers:
+        kwargs["n_customers"] = args.customers
+
+    imported = benchmark_directory(root, pattern=pattern, fmt=args.suite,
+                                   limit=args.limit, **kwargs)
+    dropped = sorted({note for imp in imported for note in imp.dropped})
+    print(f"{len(imported)} instances from {root} "
+          f"(n = {imported[0].instance.n_customers}"
+          f"..{imported[-1].instance.n_customers})")
+    if dropped:
+        print("dropped from every instance: " + "; ".join(dropped))
+    return [imp.instance for imp in imported]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -234,8 +274,21 @@ def main() -> int:
     ap.add_argument("--bnb-time", type=float, default=20.0)
     ap.add_argument("--meta-time", type=float, default=5.0)
     ap.add_argument("--methods", default="greedy,bnb,ga,sa,alns")
-    ap.add_argument("--suite", default="default", choices=["default", "zones"])
-    ap.add_argument("--store", default="results/runs.db")
+    ap.add_argument("--suite", default="default",
+                    choices=["default", "zones", "geo", "cvrplib", "solomon"],
+                    help="synthetic (the study of record), synthetic with "
+                         "no-fly zones, the real Pontianak geography, or an "
+                         "imported literature set (roadmap §3.3)")
+    ap.add_argument("--benchmark-dir",
+                    help="where the .vrp / Solomon files live "
+                         "(default: data/CVRPLIB or data/Solomon)")
+    ap.add_argument("--customers", type=int,
+                    help="solomon only: keep the first N customers of each file")
+    ap.add_argument("--limit", type=int,
+                    help="use only the first N instances, smallest first")
+    ap.add_argument("--store", default=None,
+                    help="results database (default: results/runs.db for the "
+                         "default suite, results/<suite>_runs.db otherwise)")
     ap.add_argument("--quick", action="store_true",
                     help="fast smoke run: 1 seed, 3s B&B, 1s per metaheuristic")
     ap.add_argument("--tables-only", action="store_true",
@@ -244,6 +297,12 @@ def main() -> int:
     args = ap.parse_args()
 
     methods = [m.strip() for m in args.methods.split(",") if m.strip()]
+    # Side suites keep their own store. Sharing one would make them the "latest
+    # group", and `--tables-only` would then quietly rebuild the report's tables
+    # from a run the report is not about.
+    if args.store is None:
+        args.store = ("results/runs.db" if args.suite == "default"
+                      else f"results/{args.suite}_runs.db")
 
     if args.tables_only:
         store = ResultStore(args.store)
@@ -266,8 +325,13 @@ def main() -> int:
     if args.quick:
         args.seeds, args.bnb_time, args.meta_time = 1, 3.0, 1.0
 
-    suite = (zone_benchmark_suite() if args.suite == "zones"
-             else default_benchmark_suite())
+    if args.suite in ("cvrplib", "solomon"):
+        suite = imported_suite(args)
+    else:
+        suites = {"default": default_benchmark_suite,
+                  "zones": zone_benchmark_suite,
+                  "geo": geo_benchmark_suite}
+        suite = suites[args.suite]()
     seeds = list(range(1, args.seeds + 1))
 
     print(f"{len(suite)} instances | methods={methods} | seeds={seeds}")
@@ -283,12 +347,16 @@ def main() -> int:
     recs, summary = instance_rows(rows), method_summary(rows)
     sig = significance_report(rows, methods=methods)
 
-    write_csvs(recs, summary)
-    write_latex_tables(recs, summary, methods)
-    write_significance_json(sig)
-    write_significance_table(sig)
+    if args.suite == "default":
+        write_csvs(recs, summary)
+        write_latex_tables(recs, summary, methods)
+        write_significance_json(sig)
+        write_significance_table(sig)
     report(recs, summary, methods)
     report_significance(sig)
+    if args.suite != "default":
+        print(f"\n({args.suite} suite: stored in {args.store}, and the report's "
+              "tables were left alone -- they describe the default suite.)")
     print(f"\nfinished in {time.time() - t0:.1f}s -> results/ (group {group})")
     store.close()
     return 0

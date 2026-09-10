@@ -1,0 +1,29 @@
+NAME : toy-n8-k3
+COMMENT : (hand-written fixture for the CVRPLIB importer; the optimum below was proved by this repository's own Branch & Bound on the rounded EUC_2D metric and is not a published figure, No of trucks: 3, Optimal value: 367)
+TYPE : CVRP
+DIMENSION : 9
+EDGE_WEIGHT_TYPE : EUC_2D
+CAPACITY : 30
+NODE_COORD_SECTION
+ 1 40 40
+ 2 22 66
+ 3 36 71
+ 4 58 64
+ 5 71 49
+ 6 63 25
+ 7 45 12
+ 8 19 21
+ 9 12 44
+DEMAND_SECTION
+ 1 0
+ 2 12
+ 3 9
+ 4 14
+ 5 7
+ 6 11
+ 7 16
+ 8 8
+ 9 13
+DEPOT_SECTION
+ 1
+ -1
