@@ -1,0 +1,1239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search Tree -- __DRP_INSTANCE_NAME__</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Courier+Prime:wght@400;700&display=swap">
+<style>
+  :root{
+    /* Same aeronautical-chart identity as the flight replay: warm paper, navy
+       ink, magenta for anything the search or the airspace forbids. The tree
+       and the map on this page have to read as the same document. */
+    --paper:#EDEBE1; --paper-2:#E2DFD2; --panel:#FBFAF5;
+    --ink:#1B1F1A; --muted:#585D51; --muted-2:#8A8F80;
+    --line:#D3D5C8; --line-2:#BFC2B3;
+    --restricted:#8E2F63; --caution:#B23A22; --warn:#9C6B12; --success:#3E7A3C;
+    --accent:#2C4F55; --accent-2:#3E7078; --accent-ink:#FFFFFF;
+    --live:#2F6E60;
+    --f-display:'Familjen Grotesk',system-ui,sans-serif;
+    --f-mono:'Courier Prime',ui-monospace,Consolas,monospace;
+    --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:22px; --sp-6:30px;
+    --r:5px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{background:var(--paper);color:var(--ink);font-family:var(--f-display);
+    background-image:radial-gradient(circle at 22% 12%,rgba(255,255,255,.7),transparent 55%);}
+  ::selection{background:rgba(44,79,85,.2);}
+  button{font-family:inherit;}
+
+  .console{max-width:1440px;margin:0 auto;padding:var(--sp-5) var(--sp-4) var(--sp-6);
+    display:flex;flex-direction:column;gap:var(--sp-3);}
+
+  /* ---------- header ---------- */
+  .hud{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:var(--sp-4) var(--sp-5);display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:space-between;gap:var(--sp-4);}
+  .hud-title{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap;}
+  .eyebrow{font-weight:600;font-size:10px;letter-spacing:.16em;color:var(--accent);
+    text-transform:uppercase;}
+  .hud-title h1{font-weight:700;font-size:clamp(21px,3vw,30px);margin:0;letter-spacing:-.01em;
+    text-transform:capitalize;}
+  .hud-title .sub{font-family:var(--f-mono);font-size:11px;color:var(--muted-2);}
+  .stat-strip{display:flex;gap:var(--sp-5);flex-wrap:wrap;}
+  .stat{display:flex;flex-direction:column;gap:1px;min-width:56px;}
+  .stat .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:17px;
+    color:var(--ink);line-height:1.2;}
+  .stat .k{font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);
+    font-weight:600;}
+  .stat.ok .v{color:var(--accent);}
+  .stat.good .v{color:var(--success);}
+  .stat.hot .v{color:var(--caution);}
+
+  /* ---------- layout ---------- */
+  /* Fixed panel height, no aspect-ratio anywhere: a grid row that stretches to
+     its tallest item plus an aspect-ratio child feeds height back into width and
+     the panel walks over its neighbour. */
+  .body{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:var(--sp-3);
+    align-items:stretch;}
+  @media (max-width:1080px){.body{grid-template-columns:1fr;}}
+
+  /* ---------- tree ---------- */
+  .tree-panel{position:relative;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--panel);overflow:hidden;min-height:clamp(330px,54vh,640px);}
+  .tree-panel::after{content:"";position:absolute;inset:0;pointer-events:none;
+    border-radius:var(--r);
+    box-shadow:inset 0 0 62px rgba(27,31,26,.07);}
+  #tree{display:block;width:100%;height:100%;touch-action:none;cursor:grab;outline:none;}
+  #tree.dragging{cursor:grabbing;}
+  .chrome{position:absolute;inset:0;pointer-events:none;padding:var(--sp-3);
+    display:flex;flex-direction:column;justify-content:space-between;}
+  .chrome-row{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-2);}
+  .plate{pointer-events:auto;background:rgba(251,250,245,.93);border:1px solid var(--line);
+    border-radius:4px;padding:5px 8px;font-family:var(--f-mono);font-size:10px;
+    color:var(--muted);letter-spacing:.04em;}
+  .zoomer{display:flex;gap:4px;padding:4px;}
+  .zoomer button{width:24px;height:22px;border:1px solid var(--line);background:var(--panel);
+    color:var(--muted);border-radius:3px;font-size:11px;cursor:pointer;line-height:1;
+    font-family:var(--f-mono);}
+  .zoomer button:hover{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+  .keylegend{display:flex;gap:10px;flex-wrap:wrap;max-width:440px;align-items:center;}
+  .keylegend span{display:flex;align-items:center;gap:4px;white-space:nowrap;}
+  .keylegend i{width:9px;height:9px;border-radius:50%;display:inline-block;}
+  .keylegend i.ring{background:transparent;border:1.6px solid currentColor;}
+  .ramp{display:flex;align-items:center;gap:6px;}
+  .ramp .bar{width:96px;height:7px;border-radius:2px;
+    background:linear-gradient(90deg,#2F6E60,#A8802A,#8E2F63);border:1px solid var(--line-2);}
+
+  /* ---------- rail ---------- */
+  .rail{display:flex;flex-direction:column;gap:var(--sp-3);min-width:0;}
+  /* No height binding: the tree panel's own height is fixed, so letting the
+     rail set the grid row height cannot feed back into anything. */
+  .card{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:var(--sp-3) var(--sp-4);}
+  .card h2{margin:0 0 var(--sp-2);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;display:flex;justify-content:space-between;
+    align-items:baseline;gap:8px;}
+  .card h2 em{font-style:normal;font-family:var(--f-mono);color:var(--muted-2);
+    letter-spacing:0;text-transform:none;font-size:10px;}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2.5px 0;
+    border-bottom:1px dotted var(--line);}
+  .kv:last-child{border-bottom:0;}
+  .kv span{color:var(--muted);}
+  .kv b{font-family:var(--f-mono);font-weight:700;font-variant-numeric:tabular-nums;}
+  .kv b.bad{color:var(--restricted);}
+  .kv b.good{color:var(--success);}
+  .chip{display:inline-block;font-family:var(--f-mono);font-size:9px;padding:1px 5px;
+    border-radius:3px;letter-spacing:.05em;text-transform:uppercase;border:1px solid;}
+  .routes{font-family:var(--f-mono);font-size:11px;line-height:1.55;margin-top:6px;}
+  .routes div{display:flex;gap:6px;align-items:baseline;}
+  .routes i{width:7px;height:7px;border-radius:2px;flex:none;font-style:normal;}
+  .routes .tag{color:var(--muted-2);font-size:9px;letter-spacing:.08em;text-transform:uppercase;
+    min-width:52px;}
+  .cands{margin-top:6px;max-height:168px;overflow:auto;}
+  .cand{display:grid;grid-template-columns:auto 1fr auto;gap:6px;align-items:center;
+    font-family:var(--f-mono);font-size:10.5px;padding:3px 4px;border-radius:3px;cursor:pointer;
+    border:1px solid transparent;}
+  .cand:hover{background:var(--paper-2);}
+  .cand.on{border-color:var(--accent);background:rgba(44,79,85,.07);}
+  .cand .c{font-weight:700;}
+  .cand .o{font-size:9px;letter-spacing:.04em;}
+  .cand .b{color:var(--muted);font-variant-numeric:tabular-nums;}
+  .empty{color:var(--muted-2);font-size:11px;font-style:italic;padding:6px 0;}
+  #miniWrap{margin-top:6px;border:1px solid var(--line);border-radius:4px;
+    background:var(--paper);overflow:hidden;}
+  #mini{display:block;width:100%;height:230px;}
+  #chart{display:block;width:100%;height:118px;margin-top:4px;}
+  .chartlegend{display:flex;gap:12px;font-size:10px;color:var(--muted);margin-top:2px;
+    font-family:var(--f-mono);flex-wrap:wrap;}
+  .chartlegend i{display:inline-block;width:14px;height:0;border-top-width:2px;
+    border-top-style:solid;vertical-align:middle;margin-right:4px;}
+
+  /* ---------- transport ---------- */
+  .transport{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:var(--sp-3) var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2);}
+  .t-row{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;}
+  .play-btn{width:34px;height:34px;border-radius:50%;border:1px solid var(--accent);
+    background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;
+    cursor:pointer;flex:none;}
+  .play-btn svg{width:13px;height:13px;}
+  .speed{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .speed button{border:0;background:transparent;padding:5px 9px;font-size:10.5px;
+    font-family:var(--f-mono);color:var(--muted);cursor:pointer;border-right:1px solid var(--line);}
+  .speed button:last-child{border-right:0;}
+  .speed button.on{background:var(--accent);color:var(--accent-ink);}
+  .ghost{border:1px solid var(--line);background:transparent;color:var(--muted);
+    padding:6px 11px;border-radius:4px;font-size:10.5px;cursor:pointer;letter-spacing:.05em;}
+  .ghost:hover{border-color:var(--accent);color:var(--accent);}
+  .ghost[disabled]{opacity:.4;cursor:default;}
+  .ghost[disabled]:hover{border-color:var(--line);color:var(--muted);}
+  .clock{margin-left:auto;display:flex;gap:var(--sp-4);font-family:var(--f-mono);font-size:11px;
+    color:var(--muted);flex-wrap:wrap;}
+  .clock b{color:var(--ink);font-variant-numeric:tabular-nums;}
+  .scrub{position:relative;height:34px;cursor:pointer;outline:none;}
+  .scrub .track{position:absolute;left:0;right:0;top:13px;height:8px;background:var(--paper-2);
+    border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .scrub .fill{position:absolute;inset:0 100% 0 0;background:var(--accent-2);opacity:.5;}
+  .scrub .marks{position:absolute;left:0;right:0;top:13px;height:8px;pointer-events:none;}
+  .scrub .mk{position:absolute;top:-3px;width:2px;height:14px;background:var(--success);
+    border-radius:1px;}
+  .scrub .head{position:absolute;top:6px;width:2px;height:22px;background:var(--ink);
+    border-radius:1px;pointer-events:none;}
+  .scrub .head::after{content:"";position:absolute;left:-3px;top:-4px;width:8px;height:8px;
+    background:var(--ink);border-radius:50%;}
+  .scrub:focus-visible .track{border-color:var(--accent);}
+  .axis{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:9.5px;
+    color:var(--muted-2);}
+  .note{font-size:10.5px;color:var(--muted-2);font-family:var(--f-mono);}
+  .note b{color:var(--caution);}
+
+  .tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-140%);
+    background:var(--ink);color:var(--paper);padding:5px 8px;border-radius:4px;
+    font-family:var(--f-mono);font-size:10.5px;white-space:pre;z-index:6;line-height:1.45;}
+</style>
+</head>
+<body>
+<div class="console">
+
+  <header class="hud">
+    <div class="hud-title">
+      <div>
+        <div class="eyebrow">Branch &amp; Bound &middot; search tree</div>
+        <h1 id="ttl">&mdash;</h1>
+      </div>
+      <div class="sub" id="sub">&mdash;</div>
+    </div>
+    <div class="stat-strip">
+      <div class="stat"><div class="v" id="sNodes">&ndash;</div><div class="k">Nodes</div></div>
+      <div class="stat ok"><div class="v" id="sBest">&ndash;</div><div class="k">Incumbent</div></div>
+      <div class="stat"><div class="v" id="sBound">&ndash;</div><div class="k">Dual bound</div></div>
+      <div class="stat" id="gapStat"><div class="v" id="sGap">&ndash;</div><div class="k">Gap</div></div>
+      <div class="stat"><div class="v" id="sTime">&ndash;</div><div class="k">Seconds</div></div>
+    </div>
+  </header>
+
+  <div class="body">
+    <div class="tree-panel" id="treePanel">
+      <svg id="tree" tabindex="0" role="img" aria-label="Branch and bound search tree"></svg>
+      <div class="chrome">
+        <div class="chrome-row">
+          <div class="plate" id="readout">&mdash;</div>
+          <div class="plate zoomer">
+            <button id="zIn" title="Zoom in (+)" aria-label="Zoom in">&#43;</button>
+            <button id="zOut" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
+            <button id="zRst" title="Reset view (0)" aria-label="Reset view">RST</button>
+          </div>
+        </div>
+        <div class="chrome-row">
+          <div class="plate keylegend">
+            <span class="ramp"><span class="bar"></span>bound: root &rarr; incumbent</span>
+            <span style="color:var(--restricted)"><i class="ring"></i>pruned</span>
+            <span style="color:var(--success)"><i class="ring"></i>new incumbent</span>
+            <span style="color:var(--muted-2)"><i class="ring"></i>infeasible / dominated</span>
+            <span style="color:var(--warn)"><i class="ring"></i>timed out</span>
+          </div>
+        </div>
+      </div>
+      <div class="tip" id="tip"></div>
+    </div>
+
+    <aside class="rail">
+      <section class="card">
+        <h2>Search <em id="statusChip">&mdash;</em></h2>
+        <div id="searchKv"></div>
+      </section>
+
+      <section class="card">
+        <h2>Bound closing on incumbent</h2>
+        <svg id="chart" role="img" aria-label="Dual bound and incumbent over node expansion order"></svg>
+        <div class="chartlegend">
+          <span><i style="border-top-color:var(--accent)"></i>incumbent</span>
+          <span><i style="border-top-color:var(--live);border-top-style:dashed"></i>dual bound</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Node <em id="nodeTag">&mdash;</em></h2>
+        <div id="nodeKv"><div class="empty">Click a node in the tree, or scrub the timeline.</div></div>
+        <div class="routes" id="nodeRoutes"></div>
+        <div id="miniWrap"><svg id="mini" role="img" aria-label="Partial routes at the selected node"></svg></div>
+      </section>
+
+      <section class="card">
+        <h2>Options considered <em id="candTag">&mdash;</em></h2>
+        <div class="cands" id="cands"><div class="empty">&mdash;</div></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="transport">
+    <div class="t-row">
+      <button class="play-btn" id="playBtn" aria-label="Play">
+        <svg id="playIcon" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1.5v13l11-6.5z"/></svg>
+      </button>
+      <div class="speed" id="speedGroup">
+        <button data-s="0.5">0.5&times;</button>
+        <button data-s="1" class="on">1&times;</button>
+        <button data-s="4">4&times;</button>
+        <button data-s="16">16&times;</button>
+      </div>
+      <button class="ghost" id="prevImp" title="Previous improvement">&#9664; improve</button>
+      <button class="ghost" id="nextImp" title="Next improvement">improve &#9654;</button>
+      <div class="clock">
+        <span>PLAYHEAD <b id="rdNode">0</b></span>
+        <span>DEPTH <b id="rdDepth">0</b></span>
+        <span>LB <b id="rdLb">&ndash;</b></span>
+        <span>UB <b id="rdUb">&ndash;</b></span>
+      </div>
+    </div>
+    <div class="scrub" id="scrub" role="slider" tabindex="0"
+         aria-label="Node expansion order" aria-valuemin="0" aria-valuenow="0">
+      <div class="track"><div class="fill" id="scrubFill"></div></div>
+      <div class="marks" id="scrubMarks"></div>
+      <div class="head" id="scrubHead"></div>
+    </div>
+    <div class="axis"><span>node 0</span><span id="axMid">&mdash;</span><span id="axEnd">&mdash;</span></div>
+    <div class="note" id="note"></div>
+  </footer>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+const DATA = __DRP_TREE_DATA_JSON__;
+const NS = "http://www.w3.org/2000/svg";
+
+let reduced = false;
+gsap.matchMedia().add("(prefers-reduced-motion: reduce)", () => { reduced = true; });
+
+const C = {
+  ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8", line2:"#BFC2B3",
+  paper:"#EDEBE1", paper2:"#E2DFD2", panel:"#FBFAF5",
+  accent:"#2C4F55", accent2:"#3E7078", live:"#2F6E60",
+  restricted:"#8E2F63", caution:"#B23A22", warn:"#9C6B12", success:"#3E7A3C",
+  water:"#BCD3D8",
+};
+const MOTION = {fast:.18, normal:.34, cine:.85, ui:"power2.out"};
+
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const fmt = (v,d) => (v===null||v===undefined||!isFinite(v)) ? "–" : v.toFixed(d===undefined?1:d);
+
+function el(tag, attrs){
+  const e = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function txt(e, s){ e.textContent = s; return e; }
+
+// ===========================================================================
+// the trace
+// ===========================================================================
+const T = DATA.trace;
+const NODES = T.nodes;
+const N = NODES.length;
+const byId = new Map();
+const idxOf = new Map();
+NODES.forEach((n, i) => { byId.set(n.id, n); idxOf.set(n.id, i); });
+
+const rootBound = T.root_bound === null ? 0 : T.root_bound;
+const finalUb = DATA.result.best_energy;
+// The bound ramp spans root bound -> final incumbent. If the search proved the
+// root bound optimal there is no span, and everything sits at 0.
+const spanLB = (finalUb !== null && finalUb > rootBound + 1e-9) ? (finalUb - rootBound) : 0;
+
+const children = new Map();          // parent id -> [child ids], in pre-order
+NODES.forEach(n => {
+  if (n.parent === null) return;
+  if (!children.has(n.parent)) children.set(n.parent, []);
+  children.get(n.parent).push(n.id);
+});
+
+const improvements = NODES.filter(n => n.status === "new_incumbent").map(n => n.id);
+// The incumbent path: root -> the node that produced the returned solution.
+let winner = null;
+improvements.forEach(id => {
+  const n = byId.get(id);
+  if (winner === null || n.committed < byId.get(winner).committed) winner = id;
+});
+const incumbentPath = new Set();
+if (winner !== null){
+  let cur = winner;
+  while (cur !== null && cur !== undefined){ incumbentPath.add(cur); cur = byId.get(cur).parent; }
+}
+
+// --- the dual bound over expansion order -----------------------------------
+// Computed by exactly the rule solve_bnb uses for its reported dual_bound: the
+// minimum bound over every node generated but not yet expanded. A node's
+// children are all materialised with their bounds before it descends into any
+// of them, so after processing node t the open frontier is precisely the
+// explored-candidate children of nodes 0..t whose own id exceeds t.
+const seriesUB = new Float64Array(N);
+const seriesLB = new Float64Array(N);
+(function(){
+  const done = new Uint8Array(N);
+  // A node the clock stopped at has been *reached* but its subtree has not been
+  // explored, so it stays on the frontier -- and when the search unwinds, every
+  // sibling it had generated but never entered is on the frontier too. Both are
+  // exactly what solve_bnb counts, so the last value of this series is the
+  // dual bound the solver reports.
+  const firstTimeout = NODES.findIndex(n => n.status === "timeout");
+  const stranded = [];
+  if (firstTimeout >= 0){
+    NODES.forEach(n => (n.candidates || []).forEach(c => {
+      if (c.outcome === "unexplored" && c.bound !== null) stranded.push(c.bound);
+    }));
+  }
+  // binary min-heap of [bound, id] with lazy deletion
+  const hb = [], hi = [];
+  function push(b, id){
+    hb.push(b); hi.push(id);
+    let i = hb.length - 1;
+    while (i > 0){
+      const p = (i - 1) >> 1;
+      if (hb[p] <= hb[i]) break;
+      [hb[p],hb[i]] = [hb[i],hb[p]]; [hi[p],hi[i]] = [hi[i],hi[p]];
+      i = p;
+    }
+  }
+  function pop(){
+    const n = hb.length - 1;
+    [hb[0],hb[n]] = [hb[n],hb[0]]; [hi[0],hi[n]] = [hi[n],hi[0]];
+    hb.pop(); hi.pop();
+    let i = 0;
+    for(;;){
+      const l = 2*i+1, r = l+1; let m = i;
+      if (l < hb.length && hb[l] < hb[m]) m = l;
+      if (r < hb.length && hb[r] < hb[m]) m = r;
+      if (m === i) break;
+      [hb[m],hb[i]] = [hb[i],hb[m]]; [hi[m],hi[i]] = [hi[i],hi[m]];
+      i = m;
+    }
+  }
+  let ub = Infinity;
+  for (let t = 0; t < N; t++){
+    const n = NODES[t];
+    if (n.status !== "timeout") done[t] = 1;
+    if (n.incumbent !== null) ub = Math.min(ub, n.incumbent);
+    if (n.committed !== null && n.status === "new_incumbent") ub = Math.min(ub, n.committed);
+    (n.candidates || []).forEach(c => {
+      if (c.outcome === "explored" && c.child !== null && c.bound !== null){
+        const ci = idxOf.get(c.child);
+        if (ci !== undefined) push(c.bound, ci);
+      }
+    });
+    // id -1 is never marked done, so a stranded frontier bound stays for good
+    if (t === firstTimeout) stranded.forEach(b => push(b, -1));
+    while (hb.length && hi[0] >= 0 && done[hi[0]]) pop();
+    let lb = hb.length ? hb[0] : (isFinite(ub) ? ub : rootBound);
+    lb = Math.min(lb, isFinite(ub) ? ub : lb);
+    seriesUB[t] = ub;
+    seriesLB[t] = lb;
+  }
+})();
+
+// ===========================================================================
+// tree layout -- x is expansion order, y is depth
+// ===========================================================================
+// Using the pre-order index as x makes the horizontal axis the same axis the
+// scrubber runs on: the playhead sweeps left to right through real search time,
+// and a node's whole subtree sits immediately to its right.
+let maxDepth = 0;
+NODES.forEach(n => { if (n.depth > maxDepth) maxDepth = n.depth; });
+const W = 1000;
+const H = 760;   // world aspect ~1.3:1, close to the panel's
+const xGap = W / Math.max(1, N - 1);
+const rowGap = H / Math.max(1, maxDepth);
+// Radius has to respect both the row spacing and the horizontal spacing, or a
+// dense tree turns into one solid bar and a sparse one into invisible specks.
+const rBase = clamp(Math.min(rowGap * 0.22, xGap * 0.9), 0.5, 13);
+const nx = i => i * xGap;
+const ny = d => d * rowGap;
+
+function promiseOf(n){
+  if (n.incumbent === null) return 1;
+  const den = n.incumbent - rootBound;
+  if (den <= 1e-9) return n.lower_bound <= n.incumbent + 1e-9 ? 1 : 0;
+  return clamp((n.incumbent - n.lower_bound) / den, 0, 1);
+}
+function rampColor(t){
+  t = clamp(t, 0, 1);
+  const stops = [[0,[58,134,116]],[0.5,[176,136,48]],[1,[142,47,99]]];
+  let a = stops[0], b = stops[stops.length-1];
+  for (let i=0;i<stops.length-1;i++){
+    if (t >= stops[i][0] && t <= stops[i+1][0]){ a = stops[i]; b = stops[i+1]; break; }
+  }
+  const f = (b[0]-a[0]) ? (t-a[0])/(b[0]-a[0]) : 0;
+  const c = [0,1,2].map(k => Math.round(a[1][k] + (b[1][k]-a[1][k])*f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function boundColor(n){
+  if (spanLB <= 0) return rampColor(0);
+  return rampColor((n.lower_bound - rootBound) / spanLB);
+}
+const RING = {
+  pruned_bound: C.restricted,
+  new_incumbent: C.success,
+  infeasible: C.muted2,
+  dominated: C.muted2,
+  timeout: C.warn,
+  expanded: null,
+};
+
+const svg = document.getElementById("tree");
+const panel = document.getElementById("treePanel");
+const readout = document.getElementById("readout");   // written by applyCamera
+const world = el("g", {});
+svg.appendChild(world);
+const gEdges = el("g", {fill:"none", "stroke-linecap":"round"});
+const gPath = el("g", {fill:"none"});
+const gNodes = el("g", {});
+const gHead = el("g", {});
+world.appendChild(gEdges); world.appendChild(gPath);
+world.appendChild(gNodes); world.appendChild(gHead);
+
+// Edges and circles live in separate layers rather than in one group per node:
+// with them interleaved, every later node's edge painted over every earlier
+// node's circle and the whole tree read as a mass of strokes with no nodes in
+// it. Two parallel arrays keep reveal/hide a single style write per node.
+const nodeE = new Array(N);   // incoming edge, null for the root
+const nodeC = new Array(N);
+NODES.forEach((n, i) => {
+  const x = nx(i), y = ny(n.depth);
+  if (n.parent !== null){
+    const pi = idxOf.get(n.parent);
+    const px = nx(pi), py = ny(NODES[pi].depth);
+    const c1 = py + (y - py) * 0.55, c2 = y - (y - py) * 0.55;
+    const e = el("path", {
+      d:`M${px.toFixed(3)},${py.toFixed(3)} C${px.toFixed(3)},${c1.toFixed(3)} ${x.toFixed(3)},${c2.toFixed(3)} ${x.toFixed(3)},${y.toFixed(3)}`,
+      stroke:boundColor(n), "stroke-width":0.45, "stroke-opacity":0.3,
+      "vector-effect":"non-scaling-stroke"});
+    gEdges.appendChild(e);
+    nodeE[i] = e;
+  }
+  const p = promiseOf(n);
+  const col = boundColor(n);
+  const r = rBase * (0.42 + 0.58 * p);
+  const ring = RING[n.status];
+  // The stroke is what makes a node visible when the whole tree is in frame:
+  // a non-scaling stroke holds a constant screen weight, so a node is a legible
+  // dot at fit and an outlined disc when you zoom in on it.
+  const c = el("circle", {cx:x.toFixed(3), cy:y.toFixed(3), r:r.toFixed(3),
+    fill:col, stroke:ring || col, "vector-effect":"non-scaling-stroke",
+    "stroke-width": ring ? (n.status === "new_incumbent" ? 2.2 : 1.5) : 1.2});
+  c.dataset.i = i;
+  gNodes.appendChild(c);
+  nodeC[i] = c;
+});
+
+// the incumbent path, drawn once, behind the nodes
+if (incumbentPath.size > 1){
+  let d = "";
+  NODES.forEach((n, i) => {
+    if (!incumbentPath.has(n.id) || n.parent === null) return;
+    if (!incumbentPath.has(n.parent)) return;
+    const pi = idxOf.get(n.parent);
+    const x = nx(i), y = ny(n.depth);
+    const px = nx(pi), py = ny(NODES[pi].depth);
+    const c1 = py + (y - py) * 0.55, c2 = y - (y - py) * 0.55;
+    d += `M${px.toFixed(3)},${py.toFixed(3)} C${px.toFixed(3)},${c1.toFixed(3)} ${x.toFixed(3)},${c2.toFixed(3)} ${x.toFixed(3)},${y.toFixed(3)} `;
+  });
+  gPath.appendChild(el("path", {d, stroke:C.accent, "stroke-width":2.4,
+    "stroke-opacity":0.9, "vector-effect":"non-scaling-stroke",
+    "stroke-linecap":"round"}));
+}
+
+// playhead + selection ring
+const headLine = el("line", {x1:0, y1:-rowGap*0.7, x2:0, y2:H + rowGap*0.7,
+  stroke:C.ink, "stroke-width":1.1, "stroke-opacity":0.5,
+  "vector-effect":"non-scaling-stroke", "stroke-dasharray":"3 3"});
+const selRing = el("circle", {r:0, fill:"none", stroke:C.ink, "stroke-width":1.8,
+  "vector-effect":"non-scaling-stroke", opacity:0});
+gHead.appendChild(headLine); gHead.appendChild(selRing);
+
+// ===========================================================================
+// camera
+// ===========================================================================
+const pad = Math.max(W, H) * 0.05;
+const HOME = {x:-pad, y:-pad - rowGap*0.5, w:W + 2*pad, h:H + 2*pad + rowGap};
+const camera = {x:HOME.x, y:HOME.y, w:HOME.w, h:HOME.h};
+let pxPerWorld = 1;
+const MINW = (W + 2*pad) / 400, MAXW = (W + 2*pad) * 2.4;
+
+function applyCamera(){
+  svg.setAttribute("viewBox",
+    `${camera.x.toFixed(4)} ${camera.y.toFixed(4)} ${camera.w.toFixed(4)} ${camera.h.toFixed(4)}`);
+  const r = svg.getBoundingClientRect();
+  pxPerWorld = r.width ? r.width / camera.w : 1;
+  updateReadout();
+}
+function fitHome(){
+  const r = svg.getBoundingClientRect();
+  const aspect = (r.width && r.height) ? r.width / r.height : 16/9;
+  let w = W + 2*pad, h = H + 2*pad + rowGap;
+  if (w / h < aspect) w = h * aspect; else h = w / aspect;
+  HOME.w = w; HOME.h = h;
+  HOME.x = W/2 - w/2; HOME.y = (H/2) - h/2;
+}
+svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+fitHome();
+Object.assign(camera, HOME);
+applyCamera();
+
+let camTween = null;
+function killCam(){ if (camTween){ camTween.kill(); camTween = null; } }
+function clampCam(){
+  const cx = camera.x + camera.w/2, cy = camera.y + camera.h/2;
+  const lx = W/2, ly = H/2;
+  camera.x = clamp(cx, lx - HOME.w*0.7, lx + HOME.w*0.7) - camera.w/2;
+  camera.y = clamp(cy, ly - HOME.h*0.7, ly + HOME.h*0.7) - camera.h/2;
+}
+function zoomAbout(px, py, factor){
+  killCam();
+  const nw = clamp(camera.w*factor, MINW, MAXW);
+  const f = nw / camera.w;
+  const wx = camera.x + px*camera.w, wy = camera.y + py*camera.h;
+  camera.w = nw; camera.h *= f;
+  camera.x = wx - px*camera.w; camera.y = wy - py*camera.h;
+  clampCam(); applyCamera();
+}
+function flyTo(x, y, w, h, dur){
+  killCam();
+  camTween = gsap.to(camera, {x, y, w, h, duration:reduced ? 0 : (dur||MOTION.cine),
+    ease:"power3.inOut", onUpdate:applyCamera, onComplete:()=>{camTween=null;}});
+}
+function resetView(){ flyTo(HOME.x, HOME.y, HOME.w, HOME.h); }
+function frameNode(i, zoom){
+  const n = NODES[i];
+  const w = clamp(HOME.w * (zoom===undefined?0.13:zoom), MINW, MAXW);
+  const h = w * (HOME.h / HOME.w);
+  flyTo(nx(i) - w/2, ny(n.depth) - h/2, w, h, MOTION.cine);
+}
+
+svg.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const r = svg.getBoundingClientRect();
+  zoomAbout((ev.clientX-r.left)/r.width, (ev.clientY-r.top)/r.height,
+    Math.exp(clamp(ev.deltaY,-240,240) * 0.0016));
+}, {passive:false});
+
+let drag = null, lastMoved = 0;
+svg.addEventListener("pointerdown", ev => {
+  if (ev.button !== 0) return;
+  killCam();
+  drag = {x:ev.clientX, y:ev.clientY, moved:0};
+  svg.setPointerCapture(ev.pointerId);
+  svg.classList.add("dragging");
+});
+svg.addEventListener("pointermove", ev => {
+  hoverProbe(ev);
+  if (!drag) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  drag.x = ev.clientX; drag.y = ev.clientY;
+  drag.moved += Math.abs(dx) + Math.abs(dy);
+  const k = 1 / pxPerWorld;
+  camera.x -= dx*k; camera.y -= dy*k;
+  clampCam(); applyCamera();
+});
+function endDrag(ev){
+  if (!drag) return;
+  lastMoved = drag.moved;
+  drag = null;
+  svg.classList.remove("dragging");
+  try { svg.releasePointerCapture(ev.pointerId); } catch(e){}
+}
+svg.addEventListener("pointerup", endDrag);
+svg.addEventListener("pointercancel", endDrag);
+svg.addEventListener("pointerleave", () => { tipHide(); });
+
+const touches = new Map();
+svg.addEventListener("pointerdown", ev => { if (ev.pointerType==="touch") touches.set(ev.pointerId, ev); });
+svg.addEventListener("pointermove", ev => {
+  if (ev.pointerType !== "touch" || !touches.has(ev.pointerId)) return;
+  const prev = [...touches.values()];
+  touches.set(ev.pointerId, ev);
+  if (touches.size !== 2) return;
+  drag = null;
+  const cur = [...touches.values()];
+  const d0 = Math.hypot(prev[0].clientX-prev[1].clientX, prev[0].clientY-prev[1].clientY);
+  const d1 = Math.hypot(cur[0].clientX-cur[1].clientX, cur[0].clientY-cur[1].clientY);
+  if (!d0 || !d1) return;
+  const r = svg.getBoundingClientRect();
+  zoomAbout(((cur[0].clientX+cur[1].clientX)/2 - r.left)/r.width,
+            ((cur[0].clientY+cur[1].clientY)/2 - r.top)/r.height, d0/d1);
+});
+["pointerup","pointercancel"].forEach(t => svg.addEventListener(t, ev => touches.delete(ev.pointerId)));
+
+document.getElementById("zIn").addEventListener("click", () => zoomAbout(.5,.5,1/1.5));
+document.getElementById("zOut").addEventListener("click", () => zoomAbout(.5,.5,1.5));
+document.getElementById("zRst").addEventListener("click", () => resetView());
+svg.addEventListener("dblclick", () => resetView());
+
+function updateReadout(){
+  const z = HOME.w / camera.w;
+  readout.innerHTML = `ZOOM ${z.toFixed(1)}&times; &nbsp;&middot;&nbsp; ${N} NODES &nbsp;&middot;&nbsp; DEPTH ${maxDepth}`;
+}
+
+let resizeRaf = 0;
+new ResizeObserver(() => {
+  cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(() => {
+    const zx = camera.w / HOME.w;
+    const cx = camera.x + camera.w/2, cy = camera.y + camera.h/2;
+    fitHome();
+    camera.w = HOME.w * zx; camera.h = HOME.h * zx;
+    camera.x = cx - camera.w/2; camera.y = cy - camera.h/2;
+    clampCam(); applyCamera();
+  });
+}).observe(panel);
+
+// ===========================================================================
+// hit testing + tooltip
+// ===========================================================================
+const tip = document.getElementById("tip");
+function tipHide(){ gsap.to(tip, {opacity:0, duration:MOTION.fast, overwrite:true}); }
+function tipShow(ev, html){
+  const r = panel.getBoundingClientRect();
+  tip.style.left = clamp(ev.clientX - r.left, 80, r.width - 80) + "px";
+  tip.style.top = (ev.clientY - r.top) + "px";
+  tip.innerHTML = html;
+  gsap.to(tip, {opacity:1, duration:MOTION.fast, overwrite:true});
+}
+function nodeSummary(n){
+  const inc = n.incumbent === null ? "none" : fmt(n.incumbent);
+  return `node ${n.id} · depth ${n.depth}\n` +
+         `bound   ${fmt(n.lower_bound)}\n` +
+         `incumbent ${inc}\n` +
+         `${n.status.replace(/_/g," ")}`;
+}
+function hoverProbe(ev){
+  if (drag && drag.moved > 3) { tipHide(); return; }
+  const t = ev.target;
+  if (t && t.tagName === "circle" && t.dataset && t.dataset.i !== undefined){
+    tipShow(ev, nodeSummary(NODES[+t.dataset.i]));
+  } else tipHide();
+}
+svg.addEventListener("click", ev => {
+  if (lastMoved > 4){ lastMoved = 0; return; }
+  const t = ev.target;
+  if (t && t.tagName === "circle" && t.dataset && t.dataset.i !== undefined){
+    select(+t.dataset.i, true);
+  }
+});
+
+// ===========================================================================
+// mini map -- the partial routes at the selected node
+// ===========================================================================
+const mini = document.getElementById("mini");
+const mb = DATA.meta.bounds;
+const mW = (mb.xmax-mb.xmin) || 1, mH = (mb.ymax-mb.ymin) || 1;
+const mPad = Math.max(mW, mH) * 0.13;
+const flipY = y => mb.ymin + mb.ymax - y;
+mini.setAttribute("viewBox",
+  `${(mb.xmin-mPad).toFixed(3)} ${(mb.ymin-mPad).toFixed(3)} ${(mW+2*mPad).toFixed(3)} ${(mH+2*mPad).toFixed(3)}`);
+mini.setAttribute("preserveAspectRatio", "xMidYMid meet");
+const mUnit = Math.max(mW, mH) / 100;
+
+const coordOf = {0: DATA.instance.depot};
+DATA.instance.customers.forEach(c => { coordOf[c.id] = c.coord; });
+const PALETTE = DATA.meta.palette;
+
+const mZones = el("g", {}), mLegs = el("g", {fill:"none"}), mPts = el("g", {});
+mini.appendChild(mZones); mini.appendChild(mLegs); mini.appendChild(mPts);
+
+DATA.meta.zones.forEach(poly => {
+  const pts = poly.map(p => `${p[0].toFixed(2)},${flipY(p[1]).toFixed(2)}`).join(" ");
+  mZones.appendChild(el("polygon", {points:pts, fill:C.restricted, "fill-opacity":"0.1",
+    stroke:C.restricted, "stroke-width":(mUnit*0.25).toFixed(3), "stroke-opacity":"0.75"}));
+});
+
+function legPath(a, b){
+  const key = a <= b ? `${a}-${b}` : `${b}-${a}`;
+  let pts = DATA.paths[key];
+  if (!pts) pts = [coordOf[a], coordOf[b]];
+  if (a > b) pts = pts.slice().reverse();
+  return pts;
+}
+function chainD(nodes){
+  let d = "", first = true;
+  for (let i = 0; i < nodes.length - 1; i++){
+    const pts = legPath(nodes[i], nodes[i+1]);
+    pts.forEach((p, k) => {
+      if (first && k === 0){ d += `M${p[0].toFixed(2)},${flipY(p[1]).toFixed(2)}`; first = false; }
+      else if (k > 0) d += ` L${p[0].toFixed(2)},${flipY(p[1]).toFixed(2)}`;
+    });
+  }
+  return d;
+}
+
+const custDot = {};
+DATA.instance.customers.forEach(c => {
+  const g = el("g", {});
+  const cx = c.coord[0], cy = flipY(c.coord[1]);
+  const dot = el("circle", {cx:cx.toFixed(2), cy:cy.toFixed(2), r:(mUnit*2.6).toFixed(2),
+    fill:C.panel, stroke:C.muted2, "stroke-width":(mUnit*0.4).toFixed(3)});
+  const lab = el("text", {x:cx.toFixed(2), y:cy.toFixed(2), "text-anchor":"middle",
+    "dominant-baseline":"central", "font-family":"Courier Prime", "font-weight":"700",
+    "font-size":(mUnit*2.9).toFixed(2), fill:C.muted});
+  txt(lab, String(c.id));
+  g.appendChild(dot); g.appendChild(lab);
+  mPts.appendChild(g);
+  custDot[c.id] = {dot, lab};
+});
+(function(){
+  const d = DATA.instance.depot;
+  const g = el("g", {});
+  const cx = d[0], cy = flipY(d[1]);
+  g.appendChild(el("rect", {x:(cx-mUnit*2.9).toFixed(2), y:(cy-mUnit*2.9).toFixed(2),
+    width:(mUnit*5.8).toFixed(2), height:(mUnit*5.8).toFixed(2), fill:C.accent,
+    rx:(mUnit*0.8).toFixed(2)}));
+  const lab = el("text", {x:cx.toFixed(2), y:cy.toFixed(2), "text-anchor":"middle",
+    "dominant-baseline":"central", "font-family":"Familjen Grotesk", "font-weight":"700",
+    "font-size":(mUnit*3.2).toFixed(2), fill:C.panel});
+  txt(lab, "H");
+  g.appendChild(lab);
+  mPts.appendChild(g);
+})();
+
+const CAND_COLOR = {
+  cut_bound: C.restricted, cut_payload: C.warn, cut_battery: C.caution,
+  cut_forbidden: C.muted2, cut_symmetry: C.muted2, unexplored: C.accent2,
+};
+let candEls = [];
+function drawMini(n, highlight){
+  mLegs.textContent = "";
+  candEls = [];
+  if (!n){ Object.values(custDot).forEach(o => { o.dot.setAttribute("fill", C.panel);
+    o.dot.setAttribute("stroke", C.muted2); }); return; }
+
+  const assigned = new Set();
+  n.closed_routes.forEach(r => r.forEach(c => assigned.add(c)));
+  n.open_route.forEach(c => assigned.add(c));
+  Object.entries(custDot).forEach(([id, o]) => {
+    const on = assigned.has(+id);
+    o.dot.setAttribute("fill", on ? C.panel : "none");
+    o.dot.setAttribute("stroke", on ? C.ink : C.line2);
+    o.dot.setAttribute("stroke-opacity", on ? "1" : "0.75");
+    o.lab.setAttribute("fill", on ? C.ink : C.muted2);
+  });
+
+  // rejected options first, so they sit under the committed routes
+  (n.candidates || []).forEach((c, ci) => {
+    if (c.outcome === "explored") return;
+    const from = c.kind === "extend" && n.open_route.length
+      ? n.open_route[n.open_route.length-1] : 0;
+    const p = el("path", {d:chainD([from, c.customer]), stroke:CAND_COLOR[c.outcome] || C.muted2,
+      "stroke-width":(mUnit*0.55).toFixed(3), "stroke-opacity":"0.5",
+      "stroke-dasharray":`${(mUnit*1.2).toFixed(2)},${(mUnit*0.9).toFixed(2)}`,
+      "stroke-linecap":"round"});
+    mLegs.appendChild(p);
+    candEls.push({el:p, index:ci});
+  });
+
+  n.closed_routes.forEach((r, k) => {
+    if (!r.length) return;
+    const col = PALETTE[k % PALETTE.length];
+    mLegs.appendChild(el("path", {d:chainD([0].concat(r, [0])), stroke:col,
+      "stroke-width":(mUnit*1.0).toFixed(3), "stroke-opacity":"0.95",
+      "stroke-linejoin":"round", "stroke-linecap":"round"}));
+  });
+  if (n.open_route.length){
+    const col = PALETTE[n.closed_routes.length % PALETTE.length];
+    // no return leg: the open route has not flown one, and route_energy_open
+    // does not charge one either
+    mLegs.appendChild(el("path", {d:chainD([0].concat(n.open_route)), stroke:col,
+      "stroke-width":(mUnit*1.0).toFixed(3), "stroke-opacity":"0.95",
+      "stroke-dasharray":`${(mUnit*2.2).toFixed(2)},${(mUnit*1.2).toFixed(2)}`,
+      "stroke-linejoin":"round", "stroke-linecap":"round"}));
+    const tipC = coordOf[n.open_route[n.open_route.length-1]];
+    mLegs.appendChild(el("circle", {cx:tipC[0].toFixed(2), cy:flipY(tipC[1]).toFixed(2),
+      r:(mUnit*4.2).toFixed(2), fill:"none", stroke:col,
+      "stroke-width":(mUnit*0.5).toFixed(3), "stroke-opacity":"0.9"}));
+  }
+  highlightCand(highlight);
+}
+function highlightCand(index){
+  candEls.forEach(c => {
+    const on = (index !== undefined && index !== null && c.index === index);
+    c.el.setAttribute("stroke-opacity", on ? "1" : "0.5");
+    c.el.setAttribute("stroke-width", ((on ? 1.5 : 0.55) * mUnit).toFixed(3));
+  });
+}
+
+// ===========================================================================
+// bound / incumbent chart
+// ===========================================================================
+const chart = document.getElementById("chart");
+let chartHead = null;
+const CW = 300, CH = 118, CPADL = 4, CPADR = 4, CPADT = 14, CPADB = 12;
+chart.setAttribute("viewBox", `0 0 ${CW} ${CH}`);
+chart.setAttribute("preserveAspectRatio", "none");
+(function(){
+  let lo = rootBound, hi = rootBound;
+  for (let i=0;i<N;i++){
+    if (isFinite(seriesUB[i])){ lo = Math.min(lo, seriesUB[i]); hi = Math.max(hi, seriesUB[i]); }
+    if (isFinite(seriesLB[i])){ lo = Math.min(lo, seriesLB[i]); hi = Math.max(hi, seriesLB[i]); }
+  }
+  if (hi - lo < 1e-9) hi = lo + 1;
+  const px = i => CPADL + (N<=1 ? 0 : (i/(N-1))*(CW-CPADL-CPADR));
+  const py = v => CH - CPADB - ((v - lo)/(hi - lo))*(CH-CPADT-CPADB);
+  chart.appendChild(el("rect", {x:0, y:0, width:CW, height:CH, fill:"none"}));
+  chart.appendChild(el("line", {x1:CPADL, y1:CH-CPADB, x2:CW-CPADR, y2:CH-CPADB,
+    stroke:C.line, "stroke-width":1}));
+
+  let dUB = "", dLB = "";
+  for (let i=0;i<N;i++){
+    const x = px(i);
+    if (isFinite(seriesUB[i])) dUB += (dUB ? " L" : "M") + `${x.toFixed(2)},${py(seriesUB[i]).toFixed(2)}`;
+    if (isFinite(seriesLB[i])) dLB += (dLB ? " L" : "M") + `${x.toFixed(2)},${py(seriesLB[i]).toFixed(2)}`;
+  }
+  if (dLB) chart.appendChild(el("path", {d:dLB, fill:"none", stroke:C.live,
+    "stroke-width":1.6, "stroke-dasharray":"4 3", "vector-effect":"non-scaling-stroke"}));
+  if (dUB) chart.appendChild(el("path", {d:dUB, fill:"none", stroke:C.accent,
+    "stroke-width":1.8, "vector-effect":"non-scaling-stroke"}));
+  improvements.forEach(id => {
+    const i = idxOf.get(id);
+    if (i === undefined || !isFinite(seriesUB[i])) return;
+    chart.appendChild(el("circle", {cx:px(i).toFixed(2), cy:py(seriesUB[i]).toFixed(2),
+      r:2.2, fill:C.success}));
+  });
+  chart.appendChild(el("text", {x:CPADL+2, y:10, "font-family":"Courier Prime",
+    "font-size":8, fill:C.muted2})).textContent = fmt(hi);
+  chart.appendChild(el("text", {x:CPADL+2, y:CH-2, "font-family":"Courier Prime",
+    "font-size":8, fill:C.muted2})).textContent = fmt(lo);
+  const cHead = el("line", {x1:0, y1:CPADT-4, x2:0, y2:CH-CPADB,
+    stroke:C.ink, "stroke-width":1, "stroke-opacity":0.55});
+  chart.appendChild(cHead);
+  chartHead = {node:cHead, px};
+})();
+
+// ===========================================================================
+// header + search panel
+// ===========================================================================
+const R = DATA.result;
+document.getElementById("ttl").textContent = DATA.instance.name;
+document.getElementById("sub").textContent =
+  `n=${DATA.instance.n_customers} · K=${DATA.instance.fleet.n_drones} · ${R.summary}`;
+document.title = `Search Tree -- ${DATA.instance.name}`;
+document.getElementById("sNodes").textContent = R.nodes_explored.toLocaleString();
+document.getElementById("sBest").textContent = fmt(R.best_energy, 0);
+document.getElementById("sBound").textContent = fmt(R.dual_bound, 0);
+document.getElementById("sGap").textContent = R.gap === null ? "–" : R.gap.toFixed(1) + "%";
+document.getElementById("gapStat").classList.add(R.optimal ? "good" : "hot");
+document.getElementById("sTime").textContent = R.time.toFixed(2);
+
+const statusChip = document.getElementById("statusChip");
+statusChip.textContent = R.optimal ? "proven optimal" : (R.timed_out ? "timed out" : "no proof");
+statusChip.style.color = R.optimal ? C.success : C.caution;
+
+(function(){
+  const counts = {};
+  NODES.forEach(n => { counts[n.status] = (counts[n.status]||0) + 1; });
+  const cuts = {};
+  let considered = 0;
+  NODES.forEach(n => (n.candidates||[]).forEach(c => {
+    considered++;
+    cuts[c.outcome] = (cuts[c.outcome]||0) + 1;
+  }));
+  const kv = document.getElementById("searchKv");
+  function row(k, v, cls){
+    const d = document.createElement("div");
+    d.className = "kv";
+    d.innerHTML = `<span>${k}</span><b class="${cls||""}">${v}</b>`;
+    kv.appendChild(d);
+  }
+  row("Nodes recorded", N.toLocaleString() + (T.truncated ? " of " + T.nodes_explored.toLocaleString() : ""));
+  row("Max depth", maxDepth);
+  row("Pruned by bound", (counts.pruned_bound||0).toLocaleString(), "bad");
+  row("Improvements", (counts.new_incumbent||0).toLocaleString(), "good");
+  row("Complete, dominated", (counts.dominated||0).toLocaleString());
+  row("Infeasible leaves", (counts.infeasible||0).toLocaleString());
+  row("Options considered", considered.toLocaleString());
+  row("└ cut on bound", (cuts.cut_bound||0).toLocaleString(), "bad");
+  row("└ cut on payload", (cuts.cut_payload||0).toLocaleString());
+  row("└ cut on battery", (cuts.cut_battery||0).toLocaleString());
+  row("└ cut by symmetry", (cuts.cut_symmetry||0).toLocaleString());
+  row("└ cut, arc forbidden", (cuts.cut_forbidden||0).toLocaleString());
+  row("└ became a node", (cuts.explored||0).toLocaleString(), "good");
+  if (cuts.unexplored) row("└ never reached (clock)", cuts.unexplored.toLocaleString());
+
+  const note = document.getElementById("note");
+  const bits = [];
+  if (T.truncated) bits.push(`<b>Trace capped at ${T.max_nodes.toLocaleString()} nodes</b> — the search explored ${T.nodes_explored.toLocaleString()}; this is its first ${N.toLocaleString()} in depth-first order. The search itself was not truncated.`);
+  if (R.timed_out) bits.push("The clock stopped this search, so the dual bound is the minimum over the unexplored frontier, not a proof.");
+  note.innerHTML = bits.join(" ");
+})();
+
+// ===========================================================================
+// node inspector
+// ===========================================================================
+const nodeKv = document.getElementById("nodeKv");
+const nodeRoutes = document.getElementById("nodeRoutes");
+const candsEl = document.getElementById("cands");
+const nodeTag = document.getElementById("nodeTag");
+const candTag = document.getElementById("candTag");
+const STATUS_LABEL = {
+  expanded:"expanded", pruned_bound:"pruned by bound", infeasible:"infeasible",
+  new_incumbent:"new incumbent", dominated:"complete, not better", timeout:"clock expired",
+};
+const OUTCOME_LABEL = {
+  explored:"explored", cut_bound:"bound", cut_payload:"payload", cut_battery:"battery",
+  cut_forbidden:"no-fly arc", cut_symmetry:"symmetry", unexplored:"not reached",
+};
+
+let selected = null;
+let selCand = null;
+
+function renderNode(i){
+  const n = NODES[i];
+  nodeTag.textContent = `#${n.id} · depth ${n.depth}`;
+  const ring = RING[n.status];
+  const rows = [
+    ["Status", STATUS_LABEL[n.status] || n.status, n.status === "new_incumbent" ? "good" : (n.status === "pruned_bound" ? "bad" : "")],
+    ["Lower bound", fmt(n.lower_bound)],
+    ["Incumbent here", n.incumbent === null ? "none yet" : fmt(n.incumbent)],
+    ["Slack", n.incumbent === null ? "–" : fmt(n.incumbent - n.lower_bound)],
+  ];
+  if (n.committed !== null) rows.push(["Complete cost", fmt(n.committed),
+    n.status === "new_incumbent" ? "good" : ""]);
+  rows.push(["Unassigned", n.unassigned.length ? n.unassigned.join(" ") : "none"]);
+  nodeKv.innerHTML = rows.map(r =>
+    `<div class="kv"><span>${r[0]}</span><b class="${r[2]||""}">${r[1]}</b></div>`).join("");
+
+  let html = "";
+  n.closed_routes.forEach((r, k) => {
+    if (!r.length) return;
+    html += `<div><i style="background:${PALETTE[k%PALETTE.length]}"></i>` +
+            `<span class="tag">closed</span><span>0 &rarr; ${r.join(" → ")} &rarr; 0</span></div>`;
+  });
+  if (n.open_route.length){
+    html += `<div><i style="background:${PALETTE[n.closed_routes.length%PALETTE.length]}"></i>` +
+            `<span class="tag">open</span><span>0 &rarr; ${n.open_route.join(" → ")}</span></div>`;
+  }
+  if (!html) html = `<div><span class="tag">root</span><span>nothing assigned yet</span></div>`;
+  nodeRoutes.innerHTML = html;
+
+  const cands = n.candidates || [];
+  candTag.textContent = cands.length ? `${cands.length} at node ${n.id}` : "none";
+  if (!cands.length){
+    candsEl.innerHTML = `<div class="empty">${n.unassigned.length ? "no option survived" : "every customer is placed — this is a leaf"}</div>`;
+  } else {
+    candsEl.innerHTML = cands.map((c, ci) => {
+      const col = c.outcome === "explored" ? C.success : (CAND_COLOR[c.outcome] || C.muted2);
+      const verb = c.kind === "extend" ? "extend to" : "new route at";
+      return `<div class="cand" data-ci="${ci}">` +
+        `<span class="c" style="color:${col}">${verb} ${c.customer}</span>` +
+        `<span class="o" style="color:${col}">${OUTCOME_LABEL[c.outcome]||c.outcome}</span>` +
+        `<span class="b">${c.bound === null ? "" : fmt(c.bound)}</span></div>`;
+    }).join("");
+    candsEl.querySelectorAll(".cand").forEach(row => {
+      const ci = +row.dataset.ci;
+      row.addEventListener("click", () => {
+        const c = cands[ci];
+        if (c.outcome === "explored" && c.child !== null && byId.has(c.child)){
+          select(c.child, true);
+          return;
+        }
+        selCand = (selCand === ci) ? null : ci;
+        candsEl.querySelectorAll(".cand").forEach(r2 =>
+          r2.classList.toggle("on", +r2.dataset.ci === selCand));
+        highlightCand(selCand);
+      });
+      row.addEventListener("mouseenter", () => highlightCand(ci));
+      row.addEventListener("mouseleave", () => highlightCand(selCand));
+    });
+  }
+  selCand = null;
+  drawMini(n, null);
+}
+
+function select(i, fly){
+  if (i < 0 || i >= N) return;
+  selected = i;
+  const n = NODES[i];
+  selRing.setAttribute("cx", nx(i).toFixed(3));
+  selRing.setAttribute("cy", ny(n.depth).toFixed(3));
+  selRing.setAttribute("r", (rBase * 2.4).toFixed(3));
+  gsap.to(selRing, {attr:{opacity:1}, duration:reduced?0:MOTION.fast, overwrite:true});
+  renderNode(i);
+  if (fly && !reduced) frameNode(i);
+}
+
+// ===========================================================================
+// transport: the scrubber runs over node-expansion order
+// ===========================================================================
+const scrub = document.getElementById("scrub");
+const scrubFill = document.getElementById("scrubFill");
+const scrubHead = document.getElementById("scrubHead");
+const scrubMarks = document.getElementById("scrubMarks");
+const rdNode = document.getElementById("rdNode"), rdDepth = document.getElementById("rdDepth");
+const rdLb = document.getElementById("rdLb"), rdUb = document.getElementById("rdUb");
+document.getElementById("axMid").textContent = "node " + Math.floor((N-1)/2);
+document.getElementById("axEnd").textContent = "node " + (N-1);
+scrub.setAttribute("aria-valuemax", String(N-1));
+
+improvements.forEach(id => {
+  const m = document.createElement("div");
+  m.className = "mk";
+  m.style.left = (N<=1 ? 0 : (id/(N-1))*100) + "%";
+  scrubMarks.appendChild(m);
+});
+
+// Declared before setT because setT reads them and runs during setup: `let`
+// bindings are in the temporal dead zone until their declaration executes.
+let playing = false, speed = 1, ticker = null;
+let lastInspect = -1;
+
+let t = -1;            // highest node index currently revealed
+function setT(v, opts){
+  v = clamp(Math.round(v), 0, N-1);
+  if (v === t) return;
+  // reveal/hide only the range that changed
+  if (v > t){
+    for (let i = t+1; i <= v; i++){
+      nodeC[i].style.display = "";
+      if (nodeE[i]) nodeE[i].style.display = "";
+    }
+  } else {
+    for (let i = t; i > v; i--){
+      nodeC[i].style.display = "none";
+      if (nodeE[i]) nodeE[i].style.display = "none";
+    }
+  }
+  t = v;
+
+  const frac = N<=1 ? 1 : t/(N-1);
+  scrubFill.style.right = ((1-frac)*100) + "%";
+  scrubHead.style.left = (frac*100) + "%";
+  scrub.setAttribute("aria-valuenow", String(t));
+  headLine.setAttribute("x1", nx(t).toFixed(3));
+  headLine.setAttribute("x2", nx(t).toFixed(3));
+  chartHead.node.setAttribute("x1", chartHead.px(t).toFixed(2));
+  chartHead.node.setAttribute("x2", chartHead.px(t).toFixed(2));
+
+  const n = NODES[t];
+  rdNode.textContent = String(n.id);
+  rdDepth.textContent = String(n.depth);
+  rdLb.textContent = isFinite(seriesLB[t]) ? fmt(seriesLB[t], 0) : "–";
+  rdUb.textContent = isFinite(seriesUB[t]) ? fmt(seriesUB[t], 0) : "–";
+  if (!opts || opts.select !== false){
+    // Rebuilding the inspector and the mini map is far too expensive to do at
+    // playback rate; an improvement always gets through, everything else is
+    // sampled and the true state is restored on pause.
+    const now = performance.now();
+    if (!playing || n.status === "new_incumbent" || now - lastInspect > 110){
+      lastInspect = now;
+      select(t, false);
+    }
+  }
+  if (n.status === "new_incumbent" && !reduced && playing){
+    gsap.fromTo(nodeC[t], {attr:{r: rBase*0.6}}, {attr:{r: rBase*3.2}, duration:.5,
+      ease:"power2.out", onComplete:() => {
+        nodeC[t].setAttribute("r", (rBase*(0.42+0.58*promiseOf(n))).toFixed(3));
+      }});
+  }
+}
+for (let i = 0; i < N; i++){
+  nodeC[i].style.display = "none";
+  if (nodeE[i]) nodeE[i].style.display = "none";
+}
+setT(N-1);
+
+// playback
+const playBtn = document.getElementById("playBtn");
+const playIcon = document.getElementById("playIcon");
+const ICON_PLAY = '<path d="M3 1.5v13l11-6.5z"/>';
+const ICON_PAUSE = '<path d="M3 1.5h4v13H3zM9 1.5h4v13H9z"/>';
+let acc = 0;
+function step(){
+  const dt = gsap.ticker.deltaRatio(60) / 60;
+  // one "second" of playback covers 1/12th of the tree at 1x -- fast enough to
+  // watch, slow enough to read on a small tree
+  acc += dt * speed * Math.max(2, N/12);
+  if (acc >= 1){
+    const next = t + Math.floor(acc);
+    acc -= Math.floor(acc);
+    if (next >= N-1){ setT(N-1); pause(); return; }
+    setT(next);
+  }
+}
+function play(){
+  if (playing) return;
+  if (t >= N-1) setT(0);
+  playing = true;
+  playIcon.innerHTML = ICON_PAUSE;
+  playBtn.setAttribute("aria-label", "Pause");
+  acc = 0;
+  ticker = step;
+  gsap.ticker.add(ticker);
+}
+function pause(){
+  if (!playing) return;
+  playing = false;
+  select(t, false);
+  playIcon.innerHTML = ICON_PLAY;
+  playBtn.setAttribute("aria-label", "Play");
+  if (ticker){ gsap.ticker.remove(ticker); ticker = null; }
+}
+playBtn.addEventListener("click", () => playing ? pause() : play());
+document.getElementById("speedGroup").addEventListener("click", ev => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  speed = parseFloat(b.dataset.s);
+  [...ev.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+});
+
+function seekFromEvent(ev){
+  const r = scrub.getBoundingClientRect();
+  setT(((ev.clientX - r.left) / r.width) * (N-1));
+}
+let scrubbing = false;
+scrub.addEventListener("pointerdown", ev => {
+  scrubbing = true; pause(); scrub.setPointerCapture(ev.pointerId); seekFromEvent(ev);
+});
+scrub.addEventListener("pointermove", ev => { if (scrubbing) seekFromEvent(ev); });
+["pointerup","pointercancel"].forEach(e => scrub.addEventListener(e, ev => {
+  scrubbing = false; try { scrub.releasePointerCapture(ev.pointerId); } catch(x){}
+}));
+scrub.addEventListener("keydown", ev => {
+  const big = Math.max(1, Math.round(N/25));
+  if (ev.key === "ArrowRight") setT(t + (ev.shiftKey ? big : 1));
+  else if (ev.key === "ArrowLeft") setT(t - (ev.shiftKey ? big : 1));
+  else if (ev.key === "Home") setT(0);
+  else if (ev.key === "End") setT(N-1);
+  else return;
+  ev.preventDefault(); pause();
+});
+
+function jumpImprovement(dir){
+  if (!improvements.length) return;
+  const idx = improvements.map(id => idxOf.get(id)).filter(i => i !== undefined);
+  let pick = dir > 0 ? idx.find(i => i > t) : [...idx].reverse().find(i => i < t);
+  // wrap, so the control is never dead: the page opens with the playhead at the
+  // end of the search, where there is no "next" improvement at all
+  if (pick === undefined) pick = dir > 0 ? idx[0] : idx[idx.length - 1];
+  if (pick === undefined) return;
+  pause();
+  setT(pick);
+  frameNode(pick, 0.22);
+}
+document.getElementById("nextImp").addEventListener("click", () => jumpImprovement(1));
+document.getElementById("prevImp").addEventListener("click", () => jumpImprovement(-1));
+if (!improvements.length){
+  document.getElementById("nextImp").disabled = true;
+  document.getElementById("prevImp").disabled = true;
+}
+
+document.addEventListener("keydown", ev => {
+  if (ev.target && /input|textarea/i.test(ev.target.tagName)) return;
+  if (ev.code === "Space"){ ev.preventDefault(); playing ? pause() : play(); return; }
+  if (ev.target === svg){
+    const stepW = camera.w * 0.12;
+    if (ev.key === "ArrowLeft"){ camera.x -= stepW; }
+    else if (ev.key === "ArrowRight"){ camera.x += stepW; }
+    else if (ev.key === "ArrowUp"){ camera.y -= camera.h*0.12; }
+    else if (ev.key === "ArrowDown"){ camera.y += camera.h*0.12; }
+    else if (ev.key === "+" || ev.key === "="){ zoomAbout(.5,.5,1/1.5); return; }
+    else if (ev.key === "-" || ev.key === "_"){ zoomAbout(.5,.5,1.5); return; }
+    else if (ev.key === "0"){ resetView(); return; }
+    else return;
+    ev.preventDefault(); killCam(); clampCam(); applyCamera();
+  }
+});
+
+// ===========================================================================
+// intro: the tree draws itself in, settled on the node that produced the answer
+// ===========================================================================
+select(winner !== null && idxOf.has(winner) ? idxOf.get(winner) : 0, false);
+if (!reduced){
+  gsap.from(gEdges, {opacity:0, duration:MOTION.cine, ease:MOTION.ui});
+  gsap.from(gNodes, {opacity:0, duration:MOTION.cine*0.8, delay:.12, ease:MOTION.ui});
+  gsap.from(gPath, {opacity:0, duration:MOTION.cine, delay:.4, ease:MOTION.ui});
+}
+})();
+</script>
+</body>
+</html>

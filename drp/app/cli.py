@@ -4,8 +4,12 @@
     drp solve    inst.json --method alns --time 60 --seed 1 -o sol.json
     drp compare  inst.json --methods bnb,ga,sa,alns --seeds 1-10 --time 30
     drp show     sol.json --instance inst.json -o routes.png
+    drp tree     inst.json --time 20 -o tree.html
     drp export   sol.json --instance inst.json --format geojson -o routes.geojson
     drp bench    --suite default --time 5 --seeds 1-5
+
+`docs/VISUALISATION.md` is the runnable guide to every view `show` and `tree`
+produce.
 """
 from __future__ import annotations
 
@@ -141,17 +145,74 @@ def cmd_show(args) -> int:
 
     inst = load_instance(args.instance)
     sol = load_solution(args.solution, n_drones=inst.n_drones)
-    out = plot_routes(inst, sol, args.output,
-                      title=f"{inst.name} (E={total_energy(inst, sol):.0f})")
+    title = args.title or f"{inst.name} (E={total_energy(inst, sol):.0f})"
+    out = plot_routes(inst, sol, args.output, title=title)
     print(f"wrote {out}")
     if args.animate:
         from drp.viz.animate import animate_routes
-        gif = animate_routes(inst, sol, args.animate)
+        gif = animate_routes(inst, sol, args.animate, frames=args.frames,
+                             fps=args.fps, separation=args.separation,
+                             title=args.title)
         print(f"wrote {gif}")
     if args.web:
         from drp.viz.webplayback import render_playback_html
-        page = render_playback_html(inst, sol, args.web)
+        vision = None
+        if args.vision:
+            vision = _solver_vision(inst, sol, args)
+        page = render_playback_html(inst, sol, args.web, title=args.title,
+                                    separation=args.separation, vision=vision)
         print(f"wrote {page}")
+        if vision is not None:
+            print(f"  solver vision: {vision['matched']}/{vision['total']} route "
+                  f"steps matched a node in a {vision['nodes_explored']}-node "
+                  f"B&B search")
+    return 0
+
+
+def _solver_vision(inst, sol, args):
+    """Run B&B with a trace so the replay can show what the search rejected.
+
+    This is a *second* search, independent of whatever produced `sol` -- the
+    replay says so on the page. Where the search never stood at a given point in
+    a route there is simply no entry; nothing is synthesised to fill the gap.
+    """
+    from drp.exact.bnb import solve_bnb
+    from drp.meta.construct import best_construction
+    from drp.viz.treedata import build_vision_data
+
+    res = solve_bnb(inst, time_limit=args.vision_time,
+                    warm_start=best_construction(inst), trace=True,
+                    trace_max_nodes=args.max_nodes)
+    return build_vision_data(inst, sol, res)
+
+
+def cmd_tree(args) -> int:
+    """Run B&B with tracing on and render the search-tree explorer."""
+    from drp.exact.bnb import solve_bnb
+    from drp.meta.construct import best_construction
+    from drp.viz.webtree import render_tree_html
+
+    inst = load_instance(args.instance)
+    warm = None if args.no_warm_start else best_construction(inst)
+    res = solve_bnb(inst, time_limit=args.time, warm_start=warm, trace=True,
+                    trace_max_nodes=args.max_nodes)
+
+    print(f"instance : {inst.name}  (n={inst.n_customers}, K={inst.n_drones})")
+    print(f"search   : {res.summary()}")
+    print(f"trace    : {len(res.trace.nodes)} nodes recorded"
+          + (f" (capped at {args.max_nodes}; the search itself ran on)"
+             if res.trace.truncated else ""))
+
+    page = render_tree_html(inst, res, args.output, title=args.title)
+    print(f"wrote {page}")
+
+    if args.solution and res.best_solution is not None:
+        p = save_solution(inst, res.best_solution, args.solution, method="bnb",
+                          meta={"time_limit": args.time,
+                                "dual_bound": res.dual_bound,
+                                "optimal": res.optimal,
+                                "nodes_explored": res.nodes_explored})
+        print(f"wrote {p}")
     return 0
 
 
@@ -225,7 +286,37 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also write an animated playback to this path")
     sh.add_argument("--web", metavar="HTML",
                     help="also write an interactive GSAP flight-playback page to this path")
+    sh.add_argument("--title", help="title for the plot, the GIF and the web page")
+    sh.add_argument("--frames", type=int, default=160,
+                    help="animation frames (--animate only)")
+    sh.add_argument("--fps", type=int, default=20,
+                    help="animation frames per second (--animate only)")
+    sh.add_argument("--separation", type=float,
+                    help="conflict distance for --animate and --web "
+                         "(default: 3%% of the field span)")
+    sh.add_argument("--vision", action="store_true",
+                    help="run a traced B&B and show, in --web, the partial "
+                         "routes the search considered and rejected")
+    sh.add_argument("--vision-time", type=float, default=10.0,
+                    help="seconds for the --vision B&B search")
+    sh.add_argument("--max-nodes", type=int, default=20000,
+                    help="cap on trace records for --vision")
     sh.set_defaults(func=cmd_show)
+
+    tr = sub.add_parser("tree", help="explore the B&B search tree in a browser")
+    tr.add_argument("instance")
+    tr.add_argument("--time", type=float, default=20.0,
+                    help="seconds of search budget")
+    tr.add_argument("-o", "--output", default="tree.html")
+    tr.add_argument("--max-nodes", type=int, default=4000,
+                    help="cap on recorded nodes; the search is never truncated")
+    tr.add_argument("--title", help="title for the page")
+    tr.add_argument("--solution", metavar="JSON",
+                    help="also write the solution B&B found to this path")
+    tr.add_argument("--no-warm-start", action="store_true",
+                    help="start with no incumbent, so the tree shows the search "
+                         "finding its first solution")
+    tr.set_defaults(func=cmd_tree)
 
     e = sub.add_parser("export", help="export a solution for other tools")
     e.add_argument("solution")
