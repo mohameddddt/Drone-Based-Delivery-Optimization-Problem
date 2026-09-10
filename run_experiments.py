@@ -267,6 +267,32 @@ def imported_suite(args) -> List[Any]:
     return [imp.instance for imp in imported]
 
 
+def machine_speed() -> float:
+    """A deterministic micro-benchmark, in Split evaluations per second.
+
+    Every result in this project is time-boxed, so its quality depends on how
+    much work the machine got done in the budget -- and this machine has been
+    measured at 16,440 B&B nodes/s on one day and 5,606 on another, a 3x spread
+    with byte-identical code (`S5_n9_k3` explored exactly the same 35,654 nodes
+    both times). Without a number like this in the log, a re-run looks like a
+    change in the software.
+
+    Printed with every study so two runs can be compared honestly, or not
+    compared at all.
+    """
+    from drp.instances import generate_instance
+    from drp.meta.split import split
+
+    inst = generate_instance("calibration", 20, 5, seed=99)
+    tour = list(range(1, inst.N))
+    split(inst, tour)                       # warm the caches
+    t0 = time.perf_counter()
+    reps = 200
+    for _ in range(reps):
+        split(inst, tour)
+    return reps / (time.perf_counter() - t0)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -337,6 +363,8 @@ def main() -> int:
     print(f"{len(suite)} instances | methods={methods} | seeds={seeds}")
     print(f"B&B {args.bnb_time}s | metaheuristics {args.meta_time}s/seed | "
           f"code {git_sha()}")
+    print(f"machine: {machine_speed():.0f} Split evaluations/s "
+          f"(time-boxed results depend on this; see PROGRESS.md)")
 
     t0 = time.time()
     store = run_study(suite, methods=methods, seeds=seeds,
