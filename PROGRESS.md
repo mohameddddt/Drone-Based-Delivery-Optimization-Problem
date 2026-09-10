@@ -385,21 +385,24 @@ Nothing downstream needed changing; only the units of the numbers did.
   into a canonical order *before* sampling, so the instance does not depend on the order
   rows happen to arrive in — `test_geodata.py` checks that by shuffling the pool and
   demanding the same twelve points back.
-- **The battery is calibrated, not guessed.** The nearest-neighbour rule the synthetic
-  generator uses was extracted as `calibrate_battery` and is now shared verbatim by both
-  families, so a geographic instance is neither infeasible nor trivially loose. Every
-  instance in the suite is asserted to have a feasible construction.
+- **The battery is calibrated by the synthetic generator's own rule.** It was extracted as
+  `calibrate_battery` and is now shared verbatim by both families, and every instance in
+  the suite is asserted to have a feasible construction. That rule turns out to bind much
+  harder on clustered stops than on uniform ones — measured, and its consequences traced,
+  under "Diagnosed" below.
 - `geo_benchmark_suite()` is twelve instances whose `(n, K)` sizes **mirror
   `BENCHMARK_SPECS` exactly**, drawn from all six districts, so a geographic result can be
   read directly next to its synthetic counterpart.
 
-#### The geographic pilot run
+#### The geographic run
 
-`drp bench --suite geo --seeds 1-3 --time 3 --bnb-time 10`, stored in
-`results/geo_runs.db` as group `run_20260910_180619`. **This is a pilot, not a study**: 3
-seeds and 3 s per metaheuristic seed against the committed run's 5 and 5, and a 10 s B&B
-budget against 20 s. Energies are in kilometre-scaled units and are not comparable to the
-synthetic table's numbers — only the shape of the result is.
+`python run_experiments.py --suite geo --seeds 5 --meta-time 5 --bnb-time 20` — **the same
+protocol as the committed synthetic study**, so the two are read at the same strength.
+Stored in `results/geo_runs.db` as group `run_20260910_183127`; 204 runs, 1,013 s wall
+clock. The report's tables are untouched and still describe the synthetic suite — this is a
+companion result, and `run_experiments.py` refuses to write report tables for a non-default
+suite so it cannot become one by accident. Energies are in kilometre-scaled units and are
+**not** comparable to the synthetic table's numbers; only the shape of the result is.
 
 | Instance | n | K | Greedy | B&B | GA | SA | ALNS | Proved? | Unproved interval |
 |---|---|---|---|---|---|---|---|---|---|
@@ -409,46 +412,84 @@ synthetic table's numbers — only the shape of the result is.
 | P4_n8_k3 | 8 | 3 | 11.70 | **11.20** | **11.20** | **11.20** | **11.20** | ✓ | 0.0% |
 | P5_n9_k3 | 9 | 3 | 20.40 | **18.60** | **18.60** | **18.60** | **18.60** | ✓ | 0.0% |
 | P6_n10_k3 | 10 | 3 | 21.10 | **18.00** | **18.00** | **18.00** | **18.00** | ✓ | 0.0% |
-| P7_n12_k4 | 12 | 4 | 23.00 | 23.00 | 23.00 | 23.00 | 23.00 | | 51.7% |
-| P8_n15_k4 | 15 | 4 | 54.50 | 48.40 | 47.00 | 52.40 | **46.70** | | 50.8% |
-| P9_n18_k5 | 18 | 5 | 29.00 | 29.00 | 26.80 | 29.00 | **25.70** | | 61.4% |
-| P10_n20_k5 | 20 | 5 | 42.40 | 42.40 | **39.60** | 42.40 | 39.80 | | 67.3% |
-| P11_n25_k6 | 25 | 6 | 33.60 | 33.60 | 31.20 | 33.40 | **29.70** | | 60.1% |
-| P12_n30_k6 | 30 | 6 | 58.20 | 58.20 | 50.60 | 53.60 | **49.20** | | 72.6% |
+| P7_n12_k4 | 12 | 4 | 23.00 | 23.00 | 23.00 | 23.00 | 23.00 | | 50.6% |
+| P8_n15_k4 | 15 | 4 | 54.50 | 48.40 | 47.00 | 51.20 | **46.70** | | 50.8% |
+| P9_n18_k5 | 18 | 5 | 29.00 | 29.00 | **25.70** | 28.80 | **25.70** | | 61.4% |
+| P10_n20_k5 | 20 | 5 | 42.40 | 42.40 | **39.50** | 42.40 | 39.70 | | 67.3% |
+| P11_n25_k6 | 25 | 6 | 33.60 | 33.60 | 30.50 | 33.00 | **29.70** | | 60.1% |
+| P12_n30_k6 | 30 | 6 | 58.20 | 58.20 | 49.20 | 53.50 | **48.10** | | 72.6% |
 
 | Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
 |---|---|---|---|---|
-| **ALNS** | **25.9** | 9.01 | 6/6 | 0.000% |
-| Genetic Algorithm | 26.2 | 8.97 | 6/6 | 0.000% |
-| Simulated Annealing | 27.5 | 9.00 | 6/6 | 0.000% |
-| Branch & Bound | 27.6 | 5.61 | 6/6 | 0.000% |
+| **ALNS** | **25.8** | 24.71 | 6/6 | 0.000% |
+| Genetic Algorithm | 25.9 | 23.02 | 6/6 | 0.000% |
+| Simulated Annealing | 27.4 | 25.00 | 6/6 | 0.000% |
+| Branch & Bound | 27.6 | 10.60 | 6/6 | 0.000% |
 | Greedy construction | 29.2 | 0.00 | 1/6 | 11.865% |
+
+| Method | Avg. rank | Mean gap % [95% CI] |
+|---|---|---|
+| ALNS | 1.92 | 0.30 [0.06, 0.62] |
+| Genetic Algorithm | 2.50 | 1.29 [0.34, 2.37] |
+| Simulated Annealing | 3.00 | 4.60 [1.58, 7.82] |
+| Branch & Bound | 3.17 | 4.81 [1.23, 8.90] |
+| Greedy construction | 4.42 | 11.83 [7.71, 15.73] |
+
+Friedman: χ² = 27.29, p = 1.74 × 10⁻⁵, Nemenyi CD (α = 0.05) = 1.761.
 
 What the real geography changes, and what it does not:
 
 - **The exact/heuristic crossover is in the same place.** B&B proves `n = 5…10` and times
-  out from `n = 12`, on half the time budget the synthetic run gave it. Clustering did not
-  move the ceiling; the missing subtour elimination in the bound is still what sets it.
-- **The method ordering is unchanged** — ALNS, then GA, then SA, then timed-out B&B, then
-  greedy — and no metaheuristic ever returns below a proven optimum.
-- **Simulated annealing is the one that suffers.** On `P7`, `P9` and `P10` it returns
-  *exactly* its warm-start value, having never improved; on the uniform synthetic suite it
-  always improved. Clustered stops make a swap-and-reverse neighbourhood much likelier to
-  land on an infeasible or plainly worse solution, and SA has no repair operator to
-  recover. This is the clearest thing the real geography has told us that a uniform square
-  could not — with the caveat that the pilot's 3 s budget is shorter than the committed
-  run's 5 s.
-- **The GA/ALNS pair separates here, and it is worth being careful about.** Paired Wilcoxon
-  over the twelve instances gives ALNS better than GA at `p = 0.016`, where the synthetic
-  suite could not distinguish them at all (`p ≥ 0.14`). But the Friedman post-hoc, which
-  corrects for comparing five methods at once, does **not**: average ranks 1.88 (ALNS) and
-  2.62 (GA) differ by 0.74, well inside the Nemenyi critical difference of 1.761. The
-  honest reading is that the clustered instances *discriminate better* than uniform ones —
-  a reason to expect the literature-instance import to pay off — not that ALNS is now
-  proven better than the GA.
-- `P7_n12_k4` is a curiosity: every method, including greedy, returns 23.00 and B&B cannot
-  prove it (51.7% interval). Either the instance's calibrated battery leaves very few
-  feasible shapes, or all four searches share the same basin. Not diagnosed.
+  out from `n = 12`, exactly as on the synthetic suite. Clustering did not move the
+  ceiling; the relaxation's missing subtour elimination is still what sets it.
+- **The method ordering is unchanged** — ALNS, GA, SA, timed-out B&B, greedy — and no
+  metaheuristic ever returns below a proven optimum.
+- **Simulated annealing stalls on its warm start.** On `P10` it returns greedy's 42.40 on
+  **all five seeds**, and on `P9` on four of five, while GA and ALNS improve by 6–9% on
+  both. On the synthetic suite SA improved on every instance. The cause is below, and it is
+  not "SA is worse at clustered geography" — it is the instances.
+- **ALNS separates from GA here, but the test is at its resolution limit.** Paired Wilcoxon
+  gives `p = 0.031` against the synthetic suite's `p ≥ 0.14`. Read it carefully: the six
+  proven instances tie *exactly*, so the test runs on **six non-tied pairs**, ALNS wins all
+  six, and `2/2⁶ = 0.031` is the smallest p-value that sample size can produce — the test
+  has no more resolution to give. The Friedman post-hoc, which corrects for comparing five
+  methods at once, still does not separate them: ranks 1.92 and 2.50 differ by 0.58, well
+  inside the critical difference of 1.761. So: a clean sweep on every instance that
+  discriminates, and still not a proven win. What it does support is that clustered
+  instances discriminate *better* than uniform ones — a reason to expect the
+  literature-instance import to pay off.
+
+#### Diagnosed: these instances are far tighter than the synthetic ones
+
+`P7_n12_k4` looked like a curiosity — every method, greedy included, returns 23.00 and B&B
+cannot prove it. It is not a curiosity, and the probe is simple: sample random giant tours,
+Split them, and count how many come out feasible.
+
+| | Random tours that Split feasibly | | |
+|---|---|---|---|
+| **Geographic** | `P7` 0.55% | `P9` 0.40% | `P10` 0.55% · `P12` 0.60% |
+| **Synthetic, same sizes** | `M1` 59.7% | `M3` 99.2% | `L1` 45.8% · `L3` 14.2% |
+
+The geographic instances' feasible region is **two orders of magnitude smaller**. On `P7`
+only 22 of 3,000 random tours Split feasibly at all, and the best of those scores 29.0
+against greedy's 23.04 — the feasible set is a needle that construction finds and random
+search essentially never does.
+
+That explains everything above at once. SA's swap / 2-opt / or-move neighbourhood almost
+always steps outside the feasible region, and SA has no repair operator, so it sits on its
+warm start; the GA survives because Split re-segments every offspring, and ALNS because its
+repair operators insert feasibly by construction. On `P7` nothing can move at all.
+
+**The cause is the battery calibration, not the geography.** `calibrate_battery` derives
+the budget from a nearest-neighbour tour over all customers. When stops are clustered
+around a depot, that reference tour is short relative to what a *partitioned fleet* must
+actually fly — every route repeats the long depot↔cluster hop — so the same
+`battery_factor = 0.9` yields a far tighter instance than it does on uniform points. The
+honest consequence: **this suite is harder than the synthetic one in a way that was not
+intended**, and the SA result above is a finding about instance tightness, not about
+clustered delivery geography as such. Recalibrating the geodesic suite (a fleet-partitioned
+reference tour rather than a single NN tour, or a larger factor for `geodesic=True`) is the
+obvious next step, and it would invalidate the run above, so it has not been done here.
 
 ### §3.3 CVRPLIB and Solomon import
 
@@ -661,6 +702,9 @@ Everything below was executed, not assumed.
 - The visibility distances of all six zone instances are unchanged, to floating-point
   equality, by this branch's `segment_blocked` fix.
 - The CLI runs build → solve → export --format qgc, and import → solve, end to end.
+- Random giant tours Split into a *feasible* solution 0.4–0.6% of the time on the
+  geographic instances against 14–99% on synthetic instances of the same size — the
+  measurement behind the tightness finding, and the reason SA sits on its warm start.
 
 ### Bugs found and fixed while building this
 
@@ -729,11 +773,12 @@ Listed so nothing looks finished that isn't.
 
 2. **The *report's* study still uses synthetic instances.** The real geography is now
    wired in — `geo_benchmark_suite()` builds twelve instances from
-   `data/source/Last_Mile_Delivery_Coordinates.csv`, and the pilot run above solves them —
-   but `default_benchmark_suite()` is still what `run_experiments.py` runs by default and
-   what every table in `report/report.tex` describes. Promoting the geographic suite to the
-   study of record means re-running the full protocol (5 seeds, 20 s B&B) and re-writing
-   the report's numbers, which is a deliberate decision, not a side effect of this branch.
+   `data/source/Last_Mile_Delivery_Coordinates.csv`, and the run above solves them at the
+   committed study's own protocol — but `default_benchmark_suite()` is still what
+   `run_experiments.py` runs by default and what every table in `report/report.tex`
+   describes. Promoting the geographic suite to the study of record is a deliberate
+   decision that was considered and **not** taken here; it would also want the battery
+   recalibration described above first, since the suite is currently tighter than intended.
 
 ---
 
