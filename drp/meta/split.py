@@ -49,21 +49,63 @@ def split(inst: DRPInstance,
     parent = [[-1] * (K + 1) for _ in range(n + 1)]
     dp[0][0] = 0.0
 
+    # Locals: this loop is the hot spot of every metaheuristic in the package.
+    d = inst.dist
+    demand = inst.demand
+    alpha, beta = inst.alpha, inst.beta
+    payload, battery = inst.payload, inst.battery
+    forbidden = inst.edge_forbidden
+
     for i in range(n):
-        for k in range(K):
-            if dp[i][k] == INF:
-                continue
-            for j in range(i + 1, n + 1):
-                seg = list(tour[i:j])
-                if route_weight(inst, seg) > inst.payload + 1e-9:
-                    break  # extending the segment only adds weight
-                e = route_energy(inst, seg)
-                if math.isinf(e):
-                    continue  # a no-fly arc inside; a longer segment may differ
-                if e > inst.battery + 1e-9:
-                    break  # and only costs more from here
-                if dp[i][k] + e < dp[j][k + 1] - 1e-12:
-                    dp[j][k + 1] = dp[i][k] + e
+        row = dp[i]
+        if all(v == INF for v in row):
+            continue          # this prefix is unreachable; no segment from it counts
+
+        # A segment is extended one customer at a time, carrying its weight,
+        # its open energy and its distance-from-depot forward. The alternative
+        # -- rebuilding the slice and re-summing it for every (i, j) -- is what
+        # made this O(K n^3): the same segment was recomputed once per k, and
+        # each recomputation walked the whole segment again.
+        #
+        # Appending customer c of demand q to a segment does two things: every
+        # leg already flown now carries q more (hence beta*q*dist_open), and one
+        # new leg is flown carrying exactly q. That is the whole update, and it
+        # is O(1).
+        weight = 0.0
+        dist_open = 0.0        # depot -> ... -> last customer, no return leg
+        e_open = 0.0           # energy of those legs, at their final loads
+        prev = 0
+
+        for j in range(i + 1, n + 1):
+            c = tour[j - 1]
+            q = demand[c]
+
+            weight += q
+            if weight > payload + 1e-9:
+                break          # extending the segment only adds weight
+            if forbidden(prev, c):
+                break          # an interior leg no longer segment can avoid
+
+            leg = d[prev, c]
+            e_open += beta * q * dist_open + leg * (alpha + beta * q)
+            dist_open += leg
+            prev = c
+
+            if e_open > battery + 1e-9:
+                break          # the return leg can only add to this
+            if forbidden(c, 0):
+                continue       # cannot close here; a longer segment may close
+
+            e = e_open + d[c, 0] * alpha
+            if e > battery + 1e-9:
+                break          # and only costs more from here
+
+            for k in range(K):
+                base = row[k]
+                if base == INF:
+                    continue
+                if base + e < dp[j][k + 1] - 1e-12:
+                    dp[j][k + 1] = base + e
                     parent[j][k + 1] = i
 
     best_k, best_e = -1, INF

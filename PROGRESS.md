@@ -746,6 +746,58 @@ that random coordinates essentially never produce, which is why it survived §4.
 
 ---
 
+## §5.4 The Split decoder was the bottleneck, and then it wasn't
+
+Running the Solomon sets turned up something the project had never measured: at
+`n = 100`, **ALNS managed 39 iterations in five seconds**. On an eight-customer instance it
+does over seven thousand. Every method returned its warm start unchanged, which looked
+exactly like the feasibility freeze the Augerat sets exposed and was nothing of the kind --
+these instances are only 66-74% loaded. It was arithmetic.
+
+`split` is the decoder every metaheuristic evaluates through, and it rebuilt each candidate
+segment as a list slice and re-summed its weight and energy from scratch -- inside a loop
+over `k`, though a segment's cost does not depend on `k` at all. That is `O(K n^3)` with
+Python-level constants on the single hottest function in the package.
+
+It now carries the segment forward instead. Appending a customer of demand `q` does exactly
+two things: every leg already flown carries `q` more (a `beta * q * distance_so_far` term),
+and one new leg is flown carrying `q`. Both are `O(1)`, so the decoder is `O(n^2 + n^2 K)`.
+
+| | Before | After | |
+|---|---|---|---|
+| `n = 25`, K=3 | 7.90 ms | 0.80 ms | **9.8x** |
+| `n = 50`, K=5 | 35.28 ms | 3.22 ms | **11.0x** |
+| `n = 100`, K=9 | 102.72 ms | 4.97 ms | **20.7x** |
+
+**It is the same decoder, and that is the part worth checking.** The rewrite sums in a
+different order, so its floating point can differ in the last bits, and the DP compares
+with a `1e-12` epsilon. `tests/test_split_equivalence.py` keeps the old implementation
+verbatim as a reference and demands agreement on both the value *and* the segmentation
+across battery-tight, forbidden-arc, polygonal-zone and geodesic instances. The
+brute-force optimality test and the notebook parity test both still pass, which is the
+stronger statement: the numbers this project has published have not moved.
+
+**Where the time went instead.** End to end, ALNS at `n = 100` went from 39 iterations to
+78 -- 2x, not 20x, because Split was only half the problem. A profile now names the rest
+precisely: `_insertion_costs` in `drp/meta/alns.py` accounts for **85% of the run** (4.4 s
+of 5.2 s), called 13,943 times and drawing 1.1 million `random.uniform` noise terms. Its
+per-position loop is a candidate for vectorisation, and that is the next piece of §5.4
+work -- named by measurement rather than guessed at.
+
+Even so, `n = 100` remains out of reach at a five-second budget: 78 iterations cannot
+improve on a Clarke-Wright warm start. **That is the honest state of the scaling**, and it
+is why the exact/heuristic crossover story in this document stops mattering somewhere
+around `n = 50` -- past that the metaheuristics are not searching, they are barely moving.
+
+**A consequence the report has to acknowledge.** Every result in the committed study is
+time-boxed, so a faster decoder changes what those five seconds buy. The study of record
+(`run_20260909_221514`) was produced by the slower implementation, and re-running it today
+would give different -- probably slightly better -- metaheuristic numbers. Nothing in it is
+*wrong*; it is a measurement of code that no longer exists. The B&B and greedy columns are
+unaffected, being deterministic, which is why every pinned test still passes.
+
+---
+
 ## The committed run
 
 12 instances, 5 seeds per metaheuristic, 20 s for B&B and 5 s per metaheuristic seed.
