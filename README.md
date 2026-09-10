@@ -227,7 +227,7 @@ pytest -q -m browser       # the three HTML pages, in headless Chromium (~37 s)
 The browser tests need `pip install -e ".[dev,browser]"` and `playwright install
 chromium`; without them they skip with a message rather than passing silently.
 
-**380 tests.** The ones that matter most:
+**390 tests.** The ones that matter most:
 
 | Test | What it proves |
 |---|---|

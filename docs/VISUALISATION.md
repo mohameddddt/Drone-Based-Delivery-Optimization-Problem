@@ -150,10 +150,13 @@ and `.ps` are the vector suffixes; anything else is rasterised at 150 dpi.
 
 Two consequences worth knowing:
 
-**Vector output is reproducible.** matplotlib stamps a creation date into SVG
-and PDF by default, which makes every regeneration a diff even when nothing
-changed. Both are stripped, so regenerating a figure from the same inputs gives
-the same bytes.
+**Vector output is reproducible**, which took two fixes and neither is
+matplotlib's default. It stamps a creation date into SVG and PDF, so both are
+stripped. And the SVG backend salts its internal element ids
+(`clip-path="url(#pd8f8ba3302)"`) *per process*, so two identical figures from
+two runs differed in every id; `svg.hashsalt` pins it. With both, regenerating a
+figure from the same inputs gives the same bytes, and "did this figure change?"
+becomes a question the repository can answer.
 
 **Vector output showed that the figures' type was too small.** A figure drawn
 7.5 inches wide and placed at `0.65\textwidth` — 4.09 inches, in this report's

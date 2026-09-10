@@ -638,8 +638,9 @@ into that report.
 
 `drp/viz/theme.py` holds both palettes; `--theme`, `DRP_VIZ_THEME` and a `theme=` argument
 on every drawing entry point select one. `safe` is the default; `chart` is the original,
-byte-for-byte, so committed figures regenerate as they were. The pages no longer carry a
-palette of their own: the theme travels in the JSON payload and is written into the CSS
+every hex unchanged. Be precise about what that promises: it restores the *palette*, not a
+pre-§2.5 figure, because the type resizing below applies to both themes. The pages no
+longer carry a palette of their own: the theme travels in the JSON payload and is written into the CSS
 custom properties at startup, so **one Python constant now colours all five views**.
 
 "Safe" is a claim until something measures it, so `drp/viz/cvd.py` implements the standard
@@ -773,12 +774,14 @@ The simulation is checked first, against behaviour that does not come from this 
 deuteranopia and *not* under tritanopia, blue untouched by protanopia and destroyed by
 tritanopia. Then the claims: the safe palette's worst pair, its contrast on the page, that
 no colour carries two meanings, that the ramp is monotone under all four, that the second
-channel exists and is unique per series, and that `chart` is still byte-for-byte the
-original.
+channel exists and is unique per series, and that `chart`'s hexes are still the original
+ones. Vector export is covered too: the extension chooses the format for `.png`, `.svg`,
+`.pdf` and `.eps`; the two themes produce different files; `placed_at` changes the type
+and not the figure's dimensions; and regenerating a figure gives the same bytes.
 
 `tests/browser/` (67 tests) is described above.
 
-**380 tests**, and for the first time the JavaScript is among them.
+**390 tests**, and for the first time the JavaScript is among them.
 
 ---
 

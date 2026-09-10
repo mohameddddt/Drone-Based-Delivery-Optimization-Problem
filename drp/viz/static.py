@@ -38,6 +38,10 @@ PathLike = Union[str, Path]
 #: Suffixes matplotlib renders as vector geometry rather than pixels.
 VECTOR_SUFFIXES = frozenset({".svg", ".svgz", ".pdf", ".eps", ".ps"})
 
+#: Fixes the SVG backend's element ids. Any constant does; this one says where
+#: it came from. See `save_figure`.
+SVG_HASHSALT = "drp-viz"
+
 plt.rcParams.update({"font.size": 11, "axes.grid": True, "grid.alpha": 0.3})
 
 #: `report/report.tex` is `article`, 11 pt, A4, `margin=2.5cm`, so the text
@@ -136,18 +140,28 @@ def save_figure(fig, path: PathLike, dpi: int = 150) -> Path:
     that a few effects (hatch density, rasterised images) are quantised on --
     and PDF in particular embeds it in a way that makes two otherwise identical
     files differ, so it is left off.
+
+    Vector output is made *reproducible*, which takes two things and neither is
+    the default. matplotlib stamps a creation date into SVG and PDF, so both
+    are stripped. And the SVG backend derives its internal element ids
+    (`clip-path="url(#pd8f8ba3302)"`, `<path id="m3731149e27">`) from a salt
+    that is random per process, so two identical figures produced by two
+    different runs differ in every id. `svg.hashsalt` pins it. Without both,
+    regenerating a figure is always a diff, and "did this figure change?"
+    stops being a question the repository can answer.
     """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     if is_vector(p):
-        # `metadata` is stripped for SVG and PDF: matplotlib stamps a creation
-        # date by default, which makes every regeneration a diff.
         kw: Dict[str, Any] = {}
+        rc: Dict[str, Any] = {}
         if p.suffix.lower() in (".svg", ".svgz"):
             kw["metadata"] = {"Date": None}
+            rc["svg.hashsalt"] = SVG_HASHSALT
         elif p.suffix.lower() == ".pdf":
             kw["metadata"] = {"CreationDate": None}
-        fig.savefig(p, **kw)
+        with plt.rc_context(rc):
+            fig.savefig(p, **kw)
     else:
         fig.savefig(p, dpi=dpi)
     plt.close(fig)

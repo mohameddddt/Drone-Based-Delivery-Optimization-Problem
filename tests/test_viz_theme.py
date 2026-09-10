@@ -336,3 +336,100 @@ def test_switching_the_theme_actually_changes_what_is_drawn():
     safe = cvd.min_separation(SAFE.palette, "deuteranopia")[0]
     chart = cvd.min_separation(CHART.palette, "deuteranopia")[0]
     assert safe > 3 * chart,         f"deuteranopia floor only went {chart:.1f} -> {safe:.1f}"
+
+
+# ---------------------------------------------------------------------------
+# vector export
+# ---------------------------------------------------------------------------
+def _tiny_solution():
+    from drp.eval.runner import solve_one
+    from drp.instances import generate_zone_instance
+    inst = generate_zone_instance("vec", 7, 3, seed=3, n_zones=1)
+    res = solve_one(inst, "greedy", seed=1, time_limit=1.0)
+    assert res.solution is not None
+    return inst, res.solution
+
+
+@pytest.mark.parametrize("ext", ["png", "svg", "pdf", "eps"])
+def test_the_extension_chooses_the_format(tmp_path, ext):
+    """`drp show -o routes.svg` has to just work, with no `--format` flag."""
+    from drp.viz.static import plot_routes
+
+    inst, sol = _tiny_solution()
+    p = plot_routes(inst, sol, tmp_path / f"r.{ext}", title="t")
+    assert p.exists() and p.stat().st_size > 1000
+    head = p.read_bytes()[:512]
+    if ext == "svg":
+        assert b"<svg" in head
+    elif ext == "pdf":
+        assert head.startswith(b"%PDF")
+    elif ext == "eps":
+        assert head.startswith(b"%!PS")
+    else:
+        assert head.startswith(b"\x89PNG")
+
+
+def test_is_vector_knows_which_suffixes_are_vector():
+    from drp.viz.static import is_vector
+
+    for good in ("a.svg", "a.SVG", "a.pdf", "a.eps", "a.ps", "a.svgz"):
+        assert is_vector(good), good
+    for bad in ("a.png", "a.jpg", "a.gif", "a"):
+        assert not is_vector(bad), bad
+
+
+@pytest.mark.parametrize("ext", ["svg", "pdf", "png"])
+def test_regenerating_a_figure_gives_the_same_bytes(tmp_path, ext):
+    """Otherwise "did this figure change?" is not a question the repository can
+    answer. Two things had to be handled and neither is matplotlib's default:
+    the creation date it stamps into SVG and PDF, and the SVG backend's element
+    ids, which are salted per *process* — so this test running twice in one
+    process is not enough evidence, and `svg.hashsalt` is what actually fixes
+    it. `tests/browser`-style cross-process checking is overkill here; pinning
+    the salt is the mechanism, and this asserts the mechanism is still wired in.
+    """
+    import hashlib
+
+    from drp.viz.static import SVG_HASHSALT, plot_routes
+
+    inst, sol = _tiny_solution()
+    a = plot_routes(inst, sol, tmp_path / f"a.{ext}", title="t", theme="chart")
+    b = plot_routes(inst, sol, tmp_path / f"b.{ext}", title="t", theme="chart")
+    digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+    assert digest(a) == digest(b)
+    if ext == "svg":
+        assert SVG_HASHSALT, "an empty salt is matplotlib's random default"
+        assert b"<dc:date>" not in a.read_bytes()
+
+
+def test_the_two_themes_produce_different_files(tmp_path):
+    import hashlib
+
+    from drp.viz.static import plot_routes
+
+    inst, sol = _tiny_solution()
+    a = plot_routes(inst, sol, tmp_path / "chart.svg", title="t", theme="chart")
+    b = plot_routes(inst, sol, tmp_path / "safe.svg", title="t", theme="safe")
+    assert hashlib.sha256(a.read_bytes()).digest() != \
+        hashlib.sha256(b.read_bytes()).digest()
+
+
+def test_placed_at_scales_type_and_strokes_but_not_the_figure(tmp_path):
+    r"""`placed_at` must change the *typography*, not the figure's dimensions --
+    the figure still has to be the size `\includegraphics` expects."""
+    import re
+
+    from drp.viz.static import TEXTWIDTH_IN, plot_routes, report_typography
+
+    inst, sol = _tiny_solution()
+    a = plot_routes(inst, sol, tmp_path / "none.svg", title="t")
+    b = plot_routes(inst, sol, tmp_path / "p65.svg", title="t", placed_at=0.65)
+    size = lambda p: re.search(rb'width="([\d.]+)pt" height="([\d.]+)pt"',
+                               p.read_bytes()).groups()
+    assert size(a) == size(b), "placed_at must not change the figure's size"
+    assert a.read_bytes() != b.read_bytes(), "but it must change the type"
+
+    rt = report_typography(7.5, 0.65)
+    assert rt.scale == pytest.approx(TEXTWIDTH_IN * 0.65 / 7.5)
+    assert rt.k > 1.0, "a figure shrunk by LaTeX needs its type scaled up"
+    assert report_typography(7.5, None).k == 1.0
