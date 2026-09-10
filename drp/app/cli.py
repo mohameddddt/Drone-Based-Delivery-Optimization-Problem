@@ -5,6 +5,7 @@
     drp compare  inst.json --methods bnb,ga,sa,alns --seeds 1-10 --time 30
     drp show     sol.json --instance inst.json -o routes.png
     drp tree     inst.json --time 20 -o tree.html
+    drp dash     inst.json --methods ga,sa,alns --time 5 -o dash.html
     drp export   sol.json --instance inst.json --format geojson -o routes.geojson
     drp bench    --suite default --time 5 --seeds 1-5
 
@@ -216,6 +217,69 @@ def cmd_tree(args) -> int:
     return 0
 
 
+def cmd_dash(args) -> int:
+    """Run each metaheuristic with tracing on and render the convergence
+    dashboard."""
+    from drp.meta.alns import solve_alns
+    from drp.meta.construct import best_construction
+    from drp.meta.ga import solve_ga
+    from drp.meta.sa import solve_sa
+    from drp.viz.dashdata import MethodRun
+    from drp.viz.webdash import render_dashboard_html
+
+    inst = load_instance(args.instance)
+    methods = [m.strip().lower() for m in args.methods.split(",") if m.strip()]
+    unknown = [m for m in methods if m not in ("ga", "sa", "alns")]
+    if unknown:
+        raise SystemExit(f"dash supports ga, sa and alns; got {unknown}")
+
+    ws = best_construction(inst)
+    wt = ws.giant_tour() if ws else None
+    runs = []
+    for m in methods:
+        common = dict(seed=args.seed, time_limit=args.time, trace=True,
+                      trace_max_samples=args.max_samples)
+        if m == "ga":
+            r = solve_ga(inst, warm_tours=[wt] if wt else None, **common)
+            steps, extra = r.generations, {"generations": r.generations}
+        elif m == "sa":
+            r = solve_sa(inst, warm_tour=wt, **common)
+            steps = r.iterations
+            extra = {"iterations": r.iterations, "accepted": r.accepted,
+                     "accepted_uphill": r.accepted_uphill, "reheats": r.reheats}
+        else:
+            r = solve_alns(inst, warm_tour=wt, **common)
+            steps = r.iterations
+            extra = {"iterations": r.iterations,
+                     "destroy_weights": r.destroy_weights,
+                     "repair_weights": r.repair_weights}
+        print(f"{m:5s}: E={r.best_energy:10.2f}  {steps:7d} steps  "
+              f"{r.time:5.2f}s  {len(r.trace.samples)} samples"
+              + (f" (every {r.trace.stride})" if r.trace.stride > 1 else ""))
+        runs.append(MethodRun(m, r.trace, r.best_energy, r.time, args.seed,
+                              solution=r.best_solution, extra=extra))
+
+    reference, ref_label = None, ""
+    if args.reference > 0:
+        from drp.exact.bnb import solve_bnb
+        b = solve_bnb(inst, time_limit=args.reference, warm_start=ws)
+        if b.optimal:
+            reference, ref_label = b.best_energy, "B&B optimum"
+            print(f"bnb  : E={b.best_energy:10.2f}  proven optimal "
+                  f"({b.nodes_explored} nodes, {b.time:.2f}s)")
+        else:
+            # An unproven incumbent is not a floor, and drawing it as one would
+            # be a lie about what is known. Its dual bound genuinely is a floor.
+            reference, ref_label = b.dual_bound, "B&B dual bound"
+            print(f"bnb  : did not prove optimality in {args.reference}s; "
+                  f"using its dual bound {b.dual_bound:.2f} as the floor")
+
+    page = render_dashboard_html(inst, runs, args.output, reference=reference,
+                                 reference_label=ref_label, title=args.title)
+    print(f"wrote {page}")
+    return 0
+
+
 def cmd_export(args) -> int:
     inst = load_instance(args.instance)
     sol = load_solution(args.solution, n_drones=inst.n_drones)
@@ -317,6 +381,22 @@ def build_parser() -> argparse.ArgumentParser:
                     help="start with no incumbent, so the tree shows the search "
                          "finding its first solution")
     tr.set_defaults(func=cmd_tree)
+
+    da = sub.add_parser("dash", help="convergence dashboard for the metaheuristics")
+    da.add_argument("instance")
+    da.add_argument("--methods", default="ga,sa,alns")
+    da.add_argument("--time", type=float, default=5.0,
+                    help="seconds per method")
+    da.add_argument("--seed", type=int, default=1)
+    da.add_argument("-o", "--output", default="dash.html")
+    da.add_argument("--max-samples", type=int, default=3000,
+                    help="samples kept per method; the run is decimated "
+                         "uniformly, never truncated")
+    da.add_argument("--reference", type=float, default=0.0, metavar="SECONDS",
+                    help="also run B&B for this long and draw its optimum "
+                         "(or, failing that, its dual bound) as a floor")
+    da.add_argument("--title", help="title for the page")
+    da.set_defaults(func=cmd_dash)
 
     e = sub.add_parser("export", help="export a solution for other tools")
     e.add_argument("solution")
