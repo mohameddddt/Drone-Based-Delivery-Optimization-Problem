@@ -626,11 +626,19 @@ function flyTo(x, y, w, h, dur){
     ease:"power3.inOut", onUpdate:applyCamera, onComplete:()=>{camTween=null;}});
 }
 function resetView(){ flyTo(HOME.x, HOME.y, HOME.w, HOME.h); }
-function frameNode(i, zoom){
+// Pan to a node, but never change the zoom. Auto-zooming on select or on an
+// improvement jump lands you in empty space: this tree is wide and flat, so
+// framing one node at a fraction of the full width shows a sliver of a column
+// and nothing around it. Only move at all if the node is outside the middle of
+// the view, so clicking something you can already see does not shift the world
+// under you.
+function ensureVisible(i){
   const n = NODES[i];
-  const w = clamp(HOME.w * (zoom===undefined?0.13:zoom), MINW, MAXW);
-  const h = w * (HOME.h / HOME.w);
-  flyTo(nx(i) - w/2, ny(n.depth) - h/2, w, h, MOTION.cine);
+  const x = nx(i), y = ny(n.depth);
+  const mx = camera.x + camera.w * 0.18, Mx = camera.x + camera.w * 0.82;
+  const my = camera.y + camera.h * 0.18, My = camera.y + camera.h * 0.82;
+  if (x >= mx && x <= Mx && y >= my && y <= My) return;
+  flyTo(x - camera.w/2, y - camera.h/2, camera.w, camera.h, MOTION.normal);
 }
 
 svg.addEventListener("wheel", ev => {
@@ -1083,7 +1091,7 @@ function select(i, fly){
   selRing.setAttribute("r", (rBase * 2.4).toFixed(3));
   gsap.to(selRing, {attr:{opacity:1}, duration:reduced?0:MOTION.fast, overwrite:true});
   renderNode(i);
-  if (fly && !reduced) frameNode(i);
+  if (fly && !reduced) ensureVisible(i);
 }
 
 // ===========================================================================
@@ -1242,7 +1250,7 @@ function jumpImprovement(dir){
   if (pick === undefined) return;
   pause();
   setT(pick);
-  frameNode(pick, 0.22);
+  if (!reduced) ensureVisible(pick);
 }
 document.getElementById("nextImp").addEventListener("click", () => jumpImprovement(1));
 document.getElementById("prevImp").addEventListener("click", () => jumpImprovement(-1));

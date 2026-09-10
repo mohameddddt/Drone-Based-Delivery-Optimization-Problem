@@ -366,7 +366,7 @@ else, so `bench` and `compare` are unaffected.
 |---|---|
 | Drag / wheel / pinch / `+` `−` `RST` / arrows / `0` | Pan and zoom, as on the flight replay |
 | Double-click | Reset the view |
-| Click a node | Select it, fly the camera to it, fill the inspector |
+| Click a node | Select it and fill the inspector. The camera pans to it only if it was off-screen, and never changes zoom |
 | Hover a node | Bound, incumbent and status |
 | `Space` | Play / pause the search replay |
 | `0.5× 1× 4× 16×` | Replay speed |
