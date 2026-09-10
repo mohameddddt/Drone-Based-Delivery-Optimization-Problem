@@ -6,10 +6,32 @@ probability ``exp(-delta / T)``, which lets it escape the local optima that trap
 hill-climbing.
 
 The neighbourhood is compound -- 2-opt reversal, swap, or-move -- drawn at
-random each iteration. Cooling is geometric, and the initial temperature is
-calibrated from the average observed move delta so that early acceptance is
-about `init_accept`. On stagnation the search reheats and restarts from the
-incumbent, which adds diversification without losing the best solution found.
+random each iteration. The initial temperature is calibrated from the average
+observed move delta so that early acceptance is about `init_accept`. On
+stagnation the search reheats and restarts from the incumbent, which adds
+diversification without losing the best solution found.
+
+Cooling is geometric, but the *rate* is re-derived from the clock rather than
+fixed
+--------------------------------------------------------------------------
+A fixed ``gamma`` cools per **iteration** while every run here is bounded by
+**time**, so the amount of annealing that actually happens depends on how many
+iterations fit in the budget -- on `n`, on `K`, on the machine, and on how fast
+`drp.meta.split` happens to be that week. Get few iterations and the schedule
+never leaves its random-walk phase: the search accepts almost everything, never
+exploits, and returns the incumbent it started from.
+
+That is not hypothetical. On the Solomon sets it made SA return its
+Clarke-Wright warm start on *every one* of 56 instances at `n = 25` and `n = 50`
+-- 86% of moves accepted, 5,000 iterations, not one improvement -- and it did the
+same on two of the twelve Pontianak instances. Both looked like the search being
+trapped, and neither was: with the same code and a faster fixed cooling rate SA
+improves on all of them.
+
+So `gamma` is now recalibrated every `RECALIBRATE_EVERY` iterations from the
+measured iteration rate, to land at `FINAL_TEMP_RATIO` of the starting
+temperature exactly when the budget runs out. The parameter remains the value
+used until the first recalibration, and for runs given no time limit.
 """
 from __future__ import annotations
 
@@ -24,6 +46,13 @@ from drp.core.solution import Solution
 from drp.meta.encoding import random_neighbour, random_tour
 from drp.meta.split import split
 from drp.meta.trace import MetaSample, MetaTrace, MetaTracer
+
+
+#: How often the cooling rate is re-derived from the clock.
+RECALIBRATE_EVERY = 200
+
+#: Where the schedule should land by the end of the budget, relative to T0.
+FINAL_TEMP_RATIO = 1e-3
 
 
 @dataclass
@@ -97,11 +126,34 @@ def solve_sa(inst: DRPInstance,
                                 "reheat_after": reheat_after, "T0": T0,
                                 "seed": seed, "time_limit": time_limit})
 
+    def cooling_rate(temperature: float, elapsed: float, done: int) -> float:
+        """The gamma that lands at `FINAL_TEMP_RATIO * T0` when time runs out.
+
+        Estimated from the rate achieved so far, so a slow instance cools per
+        iteration faster than a quick one and both finish annealed.
+        """
+        if not math.isfinite(time_limit) or done <= 0 or elapsed <= 0:
+            return gamma
+        remaining_s = time_limit - elapsed
+        if remaining_s <= 0:
+            return gamma
+        expected = min(remaining_s * (done / elapsed), max_iter - done)
+        if expected < 1:
+            return gamma
+        target = max(T0 * FINAL_TEMP_RATIO, 1e-12)
+        if temperature <= target:
+            return 1.0                       # already cold; hold it there
+        return (target / temperature) ** (1.0 / expected)
+
     stagnation = 0
     it = 0
+    gamma_now = gamma
     for it in range(max_iter):
-        if time.time() - t0 > time_limit:
+        now = time.time()
+        if now - t0 > time_limit:
             break
+        if it % RECALIBRATE_EVERY == 0:
+            gamma_now = cooling_rate(T, now - t0, it)
         cand = random_neighbour(cur, rng)
         ce, csol = energy_of(cand)
         if math.isinf(ce):
@@ -130,13 +182,13 @@ def solve_sa(inst: DRPInstance,
             stagnation += 1
 
         if tr is not None:
-            now = time.time() - t0
+            sampled_at = time.time() - t0
             if event == "new_best":
-                tr.event(it, now, "new_best", best_e)
-            tr.add(MetaSample(step=it, t=now, best=best_e, current=cur_e,
+                tr.event(it, sampled_at, "new_best", best_e)
+            tr.add(MetaSample(step=it, t=sampled_at, best=best_e, current=cur_e,
                               event=event, temperature=T, accepted=took))
 
-        T *= gamma
+        T *= gamma_now
         if stagnation >= reheat_after:
             T = T0 * 0.5
             stagnation = 0
@@ -144,6 +196,7 @@ def solve_sa(inst: DRPInstance,
             cur, cur_e, cur_sol = best[:], best_e, best_sol
             if tr is not None:
                 tr.event(it, time.time() - t0, "reheat", T)
+            gamma_now = cooling_rate(T, time.time() - t0, it + 1)
 
         if it % 200 == 0:
             res.history.append(best_e)
