@@ -10,14 +10,17 @@ that — turning a 37-cell notebook into software other people can use.
 **P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
 B&B bound and §6's significance testing are now in too. §2.2's playback has been rebuilt
 as an interactive GSAP web page, and then rebuilt again around a real pan/zoom map after a
-browser-driven design review. P2's remaining pieces (B&B tree explorer, SA/GA
-dashboards, SVG export), P4 (real geography, benchmark import, service) and most of P5
-are not started.
+browser-driven design review. **§2.4's B&B tree explorer is in**, along with the trace
+instrumentation it needed — which also unblocked **Solver Vision** in the flight replay,
+the one feature the brief asked for that had been deliberately left out. Every view is now
+documented in [docs/VISUALISATION.md](docs/VISUALISATION.md). P2's remaining pieces (SA/GA
+dashboards, SVG export), P4 (real geography, benchmark import, service) and most of P5 are
+not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page); B&B tree explorer, SA/GA dashboards, SVG export ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, visualisation guide ✅; SA/GA dashboards, SVG export ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
@@ -299,15 +302,15 @@ could have caught:
 Python's only job is still producing one JSON payload (`drp/viz/webdata.py`) — **unchanged
 across all three passes**, because every one of the above reads fields that payload already
 had. All choreography lives in `drp/viz/web/playback_template.html`. That split is
-deliberate: the search-visualisation work planned next (§2.4 — B&B tree, SA/GA dashboards)
-will reuse the same data-in/choreography-out pattern once B&B/GA/SA get step-by-step trace
-instrumentation.
+deliberate: §2.4's B&B tree explorer below reuses the same data-in/choreography-out
+pattern, and the SA/GA dashboards will too.
 
-Still deliberately absent: **Solver Vision** (candidate routes considered and rejected),
-which the brief asks for and which would be the most persuasive feature on the page. B&B,
-GA and SA do not expose intermediate search states, and the brief's own rule — do not
-fabricate what the solver does not produce — makes faking it the wrong move. It is blocked
-on §2.4's trace instrumentation, not on the front end.
+**Solver Vision** (candidate routes considered and rejected) was deliberately absent
+through all three of these passes: the brief asks for it and it is the most persuasive
+feature on the page, but B&B, GA and SA exposed no intermediate search states, and the
+brief's own rule — do not fabricate what the solver does not produce — made faking it the
+wrong move. It was blocked on trace instrumentation, not on the front end. §2.4 below built
+that instrumentation, and Solver Vision is now in.
 
 On coverage, stated plainly: `tests/test_viz_web.py` (6 tests) pins the **Python** side —
 one flight per used route, cumulative distance agreeing with `route_energy`/`route_weight`,
@@ -322,6 +325,156 @@ id. That only holds when every drone has a non-empty route — `build_playback_d
 only *used* routes, so an idle drone partway through the fleet would silently misalign every
 later drone's marker, telemetry row and "why this route" panel. Fixed by looking up
 everywhere via the real `drone` field.
+
+### §2.4 B&B search-tree explorer
+
+```
+drp tree inst.json --time 20 -o tree.html
+```
+
+`solve_bnb(..., trace=True)` now records the search: one `BnBNode` per call to `recurse`,
+carrying the partial assignment, the node's lower bound, the incumbent standing at that
+moment, and how the node ended (`expanded`, `pruned_bound`, `infeasible`, `new_incumbent`,
+`dominated`, `timeout`). Each node also lists every branching option it *considered*,
+including the ones that never became nodes at all — cut for a forbidden arc, an
+over-payload or over-battery route, the symmetry break, or a sterile bound.
+
+That last part is the interesting half. At `n=7` the search **entered** 2,041 nodes but
+**considered** 5,107 options; 1,722 of those died on the symmetry break alone and 692 on
+the bound, and none of them appear in `nodes_explored`. Most of the pruning is invisible in
+the aggregate the solver used to report, and it is exactly what "why did the search never
+go down there" means.
+
+The hook is opt-in and off by default — every recording site sits behind one `tr is not
+None` test — because `bench` and `compare` run under a time limit and must not regress.
+`bound_child` had to change shape (it returns `(bound, survives)` instead of
+`Optional[float]`, so the trace can report *what* condemned a cut child), and `survives` is
+exactly the old "is not None" test, so the same children are generated and
+`nodes_explored` is unchanged. Recording stops at `trace_max_nodes` and sets `truncated`;
+the search itself always runs to completion, and a capped run returns exactly what an
+uncapped one returns.
+
+**The page.** Same data-in/choreography-out split as §2.2: `drp/viz/treedata.py` emits one
+JSON dict, `drp/viz/web/tree_template.html` owns every layout and camera decision. The tree
+puts **expansion order across and depth down**, so the horizontal axis is the scrubber's
+axis — the playhead sweeps left to right through real search time and a node's subtree sits
+immediately to its right. Nodes are filled and their edges coloured by lower bound on a
+ramp from the root bound to the final incumbent; radius grows with slack against the
+incumbent of the moment; a ring says how the node ended. The bands of solid magenta at
+depth are the answer to "why didn't it search there". Clicking a node shows its partial
+routes on a small map — closed routes with their return leg, the open route without one,
+because `route_energy_open` does not charge one either — plus the options it rejected as
+ghost legs coloured by reason.
+
+**One derived series, derived by the solver's own rule.** The rail's "bound closing on
+incumbent" chart needs the dual bound at each step, which the trace does not store. It is
+computed in the browser as the minimum over every node generated but not yet expanded —
+literally the rule `solve_bnb` uses for its reported `dual_bound`, including keeping a
+timed-out node on the frontier and adding its stranded siblings at the moment of the
+timeout. `tests/test_viz_tree.py` reimplements that rule in Python and asserts the series
+lands on `BnBResult.dual_bound` exactly, timeout included. Without that test the curve
+would be a plausible picture of a search that never happened.
+
+### §2.4 Solver Vision
+
+```
+drp show sol.json --instance inst.json --web flight.html --vision
+```
+
+The feature §2.2 deliberately left out, now that there is a trace to build it on. With it
+toggled on, selecting a drone draws the options the search considered and rejected at each
+point along that drone's route: thin low-opacity ghost legs under the flown route, coloured
+by why they were cut, with the node id and bound on hover.
+
+Matching is on **full state** first — the node whose closed routes are the drones already
+finished and whose open route is this prefix, i.e. the search building this very solution.
+That node is deep on the winning path, working against a strong incumbent, so it actually
+rejects things. Falling back to the open-route prefix alone lands on the *first* node to
+reach that prefix, which has no incumbent worth the name and explores nearly everything;
+those matches are still shown, labelled `(prefix)`.
+
+The honest cases are the point. Replaying B&B's own optimum at `n=7` gives `7/7 route steps
+matched a node (7 exact)`. Replaying an **ALNS** solution against a B&B trace that timed out
+at `n=14` gives `5/14 (0 exact)` — and the two unmatched drones say so in words: *"The
+search never stood at any point on this route, so it has nothing to say about it."* The
+solver panel carries the provenance beside the numbers: how many steps matched, how many
+exactly, how big the search was, whether it timed out, whether its trace was capped. No
+candidate is ever synthesised.
+
+### §2.4 One real finding about the bound
+
+Writing the test the roadmap asked for — *bounds along any root-to-leaf path are
+non-decreasing* — found that they are **not**, and the exception is real rather than a
+tolerance problem.
+
+`bounds.assignment_completion_bound` returns 0 for an empty completion set. So at the one
+branching step that empties the unassigned set, the bound stops charging the
+return-to-depot arc that the parent's assignment relaxation had priced, and can fall by up
+to that arc's cost. Measured across four instances: **39 of 32,887 transitions, every one
+of them into a leaf, none anywhere else.**
+
+This is not a correctness bug — the bound only ever gets *looser* there, so the optimum is
+never pruned, which is what `test_bnb_ground_truth.py` verifies end to end. But it is not
+monotone, and the test now says so precisely: monotone at every step that leaves work to
+do, only leaves may dip, and — the claim that actually matters —
+`test_a_leaf_cost_never_undercuts_an_ancestor_bound` asserts that the realised cost of a
+complete assignment is never below any bound on the way down to it. Tightening the bound to
+charge that arc would change `nodes_explored` and the committed run's numbers, so it was
+left alone and written down instead.
+
+### §2.4 What the browser found this time
+
+Five bugs, none of which were visible in the source and all of which were obvious on
+screen — the same lesson as §2.2:
+
+1. **The tree rendered as a black mass with no nodes in it.** Every node's incoming edge
+   lived inside that node's own `<g>`, so each later edge painted over every earlier
+   circle. Edges and circles are separate layers now, and edges are coloured by the bound
+   of the node they feed, which turns the mass of strokes from noise into the bound field
+   itself.
+2. **Three temporal-dead-zone crashes.** `readout` and `visionStroke` are read during
+   camera setup and `playing` during the first `setT`, all before their `let`/`const`
+   declarations execute. Note that `typeof x !== "undefined"` does *not* guard this — on a
+   `let`/`const` in its TDZ, `typeof` throws too.
+3. **"Next improvement" was dead on arrival**, because the page opens with the playhead at
+   the end of the search where there is no next improvement. It wraps now, and the page
+   opens on the node that produced the answer rather than the root, which had the inspector
+   contradicting the playhead.
+4. **The rail was height-bound to the tree**, hiding the mini map behind an inner
+   scrollbar. The tree panel stretches to the row instead — safe here, unlike §2.2's bug,
+   because the rail's height does not depend on the tree panel's width.
+5. **The colour encoding collapsed on the run where it mattered most.** A search that times
+   out without ever finding a feasible solution has no incumbent, so the ramp
+   root-bound-to-incumbent had zero span and every node came out the same colour — in
+   exactly the run where the bound is the only thing there is to look at. The ramp falls
+   back to the range of bounds actually recorded, and the legend prints both ends as
+   numbers and says which it is showing.
+
+And one found by writing the guide rather than the code: **neither page degrades when its
+CDN is unreachable — it does not render at all.** Every element on both pages is built by
+their script and that script needs GSAP, so an offline user got a shell of empty panels and
+no explanation. Both pages now detect the missing library and say what happened.
+
+### §2.4 Coverage
+
+`tests/test_bnb_trace.py` (53 tests) treats the trace as a claim about the search rather
+than a data structure to smoke-test: one record per node entered, every parent id present,
+candidate→child links real in both directions, child states composing from parent state and
+candidate, pruned nodes genuinely dominated by the incumbent they were compared against,
+and — the one that protects everything else — identical solution, energy, node count and
+dual bound with tracing on and off.
+
+`tests/test_viz_tree.py` (17 tests) covers both payloads: the explorer's geometry covers
+every leg it can be asked to draw and detours where the distance matrix detours, the
+derived dual-bound series lands on the solver's own, and Solver Vision never reports an
+option that was taken.
+
+**235 tests.** Still no browser test harness, so none of the JavaScript above is covered by
+CI; the five bugs listed were found by driving the pages in Playwright by hand. That
+remains the obvious next hardening step, and it is now overdue for two pages rather than
+one.
+
+---
 
 ---
 
@@ -500,7 +653,7 @@ Listed so nothing looks finished that isn't.
 |---|---|---|
 | §2.1 | Interactive 2D map, drag-and-drop what-if | Needs a web front end |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
-| §2.4 | B&B tree explorer, SA/GA dashboards | The data is in the store; the views are not built |
+| §2.4 | SA/GA convergence dashboards | The B&B tree explorer is built; GA/SA/ALNS already carry a `history` trace and ALNS reports final operator weights, so these need almost no new instrumentation — only per-segment weights to animate ALNS adaptation |
 | §2.5 | SVG/TikZ export, colour-blind-safe theme | Figures are PNG only |
 | §3.x | Scenario builder, geocoding, OSM basemaps, CVRPLIB/Solomon import, QGC export | Nothing started. Haversine distances exist (`geodesic=True`) but no importer uses them |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |

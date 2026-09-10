@@ -268,6 +268,15 @@
   @media (prefers-reduced-motion: reduce){
     *{animation-duration:0ms !important;animation-iteration-count:1 !important;}
   }
+
+  /* shown only when the GSAP request failed -- see the guard at the top of the
+     script; without it the page is a shell of empty panels with no explanation */
+  .offline-note{max-width:640px;margin:12vh auto;padding:0 24px;
+    font-family:system-ui,sans-serif;color:#1B1F1A;line-height:1.6;}
+  .offline-note h1{font-size:20px;margin:0 0 12px;}
+  .offline-note p{margin:0 0 12px;color:#585D51;font-size:14px;}
+  .offline-note code{font-family:ui-monospace,Consolas,monospace;font-size:13px;
+    background:#E2DFD2;padding:1px 4px;border-radius:3px;}
 </style>
 </head>
 <body>
@@ -406,6 +415,26 @@
 <script>
 (function(){
 "use strict";
+
+// Every element on this page is built by this script, and this script needs
+// GSAP -- which is the one thing the file does not carry inside it. If that
+// request failed, the page would otherwise render as a shell of empty panels
+// and em-dashes with nothing to explain it.
+if (typeof gsap === "undefined"){
+  document.body.innerHTML =
+    '<div class="offline-note">' +
+    '<h1>This page could not load GSAP</h1>' +
+    '<p>The file is self-contained apart from one thing: it fetches the GSAP ' +
+    'animation library from <code>cdnjs.cloudflare.com</code>, and its two ' +
+    'typefaces from Google Fonts, when you open it. That request did not ' +
+    'succeed — most likely this machine is offline, or something is ' +
+    'blocking the CDN.</p>' +
+    '<p>Reconnect and reload. Nothing else is missing: the instance, the ' +
+    'solution and the trace are all inside this file already.</p>' +
+    '</div>';
+  return;
+}
+
 
 const DATA = __DRP_PLAYBACK_DATA_JSON__;
 // Solver Vision (roadmap §2.4): the partial routes a traced B&B search

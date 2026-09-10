@@ -171,6 +171,15 @@
   .tip{position:absolute;pointer-events:none;opacity:0;transform:translate(-50%,-140%);
     background:var(--ink);color:var(--paper);padding:5px 8px;border-radius:4px;
     font-family:var(--f-mono);font-size:10.5px;white-space:pre;z-index:6;line-height:1.45;}
+
+  /* shown only when the GSAP request failed -- see the guard at the top of the
+     script; without it the page is a shell of empty panels with no explanation */
+  .offline-note{max-width:640px;margin:12vh auto;padding:0 24px;
+    font-family:system-ui,sans-serif;color:#1B1F1A;line-height:1.6;}
+  .offline-note h1{font-size:20px;margin:0 0 12px;}
+  .offline-note p{margin:0 0 12px;color:#585D51;font-size:14px;}
+  .offline-note code{font-family:ui-monospace,Consolas,monospace;font-size:13px;
+    background:#E2DFD2;padding:1px 4px;border-radius:3px;}
 </style>
 </head>
 <body>
@@ -207,7 +216,7 @@
         </div>
         <div class="chrome-row">
           <div class="plate keylegend">
-            <span class="ramp"><span class="bar"></span>bound: root &rarr; incumbent</span>
+            <span class="ramp"><span class="bar"></span><span id="rampLabel">bound</span></span>
             <span style="color:var(--restricted)"><i class="ring"></i>pruned</span>
             <span style="color:var(--success)"><i class="ring"></i>new incumbent</span>
             <span style="color:var(--muted-2)"><i class="ring"></i>infeasible / dominated</span>
@@ -284,6 +293,26 @@
 (function(){
 "use strict";
 
+// Every element on this page is built by this script, and this script needs
+// GSAP -- which is the one thing the file does not carry inside it. If that
+// request failed, the page would otherwise render as a shell of empty panels
+// and em-dashes with nothing to explain it.
+if (typeof gsap === "undefined"){
+  document.body.innerHTML =
+    '<div class="offline-note">' +
+    '<h1>This page could not load GSAP</h1>' +
+    '<p>The file is self-contained apart from one thing: it fetches the GSAP ' +
+    'animation library from <code>cdnjs.cloudflare.com</code>, and its two ' +
+    'typefaces from Google Fonts, when you open it. That request did not ' +
+    'succeed — most likely this machine is offline, or something is ' +
+    'blocking the CDN.</p>' +
+    '<p>Reconnect and reload. Nothing else is missing: the instance, the ' +
+    'solution and the trace are all inside this file already.</p>' +
+    '</div>';
+  return;
+}
+
+
 const DATA = __DRP_TREE_DATA_JSON__;
 const NS = "http://www.w3.org/2000/svg";
 
@@ -321,9 +350,20 @@ NODES.forEach((n, i) => { byId.set(n.id, n); idxOf.set(n.id, i); });
 
 const rootBound = T.root_bound === null ? 0 : T.root_bound;
 const finalUb = DATA.result.best_energy;
-// The bound ramp spans root bound -> final incumbent. If the search proved the
-// root bound optimal there is no span, and everything sits at 0.
-const spanLB = (finalUb !== null && finalUb > rootBound + 1e-9) ? (finalUb - rootBound) : 0;
+// The bound ramp normally spans root bound -> final incumbent, which is the
+// span that means something: how far each node's bound got towards the answer.
+// A search that timed out without ever finding a feasible solution has no
+// incumbent to span to, and that is exactly the run where the bound is the only
+// thing there is to look at -- so fall back to the range of bounds actually
+// recorded, and say which is which in the legend.
+let rampTop = (finalUb !== null && finalUb > rootBound + 1e-9) ? finalUb : null;
+let rampToIncumbent = rampTop !== null;
+if (rampTop === null){
+  let hi = rootBound;
+  NODES.forEach(n => { if (n.lower_bound !== null && n.lower_bound > hi) hi = n.lower_bound; });
+  rampTop = hi;
+}
+const spanLB = rampTop > rootBound + 1e-9 ? (rampTop - rootBound) : 0;
 
 const children = new Map();          // parent id -> [child ids], in pre-order
 NODES.forEach(n => {
@@ -904,6 +944,10 @@ document.getElementById("sBound").textContent = fmt(R.dual_bound, 0);
 document.getElementById("sGap").textContent = R.gap === null ? "–" : R.gap.toFixed(1) + "%";
 document.getElementById("gapStat").classList.add(R.optimal ? "good" : "hot");
 document.getElementById("sTime").textContent = R.time.toFixed(2);
+
+document.getElementById("rampLabel").textContent = rampToIncumbent
+  ? `bound: ${fmt(rootBound, 0)} (root) → ${fmt(rampTop, 0)} (incumbent)`
+  : `bound: ${fmt(rootBound, 0)} (root) → ${fmt(rampTop, 0)} (deepest) — no incumbent found`;
 
 const statusChip = document.getElementById("statusChip");
 statusChip.textContent = R.optimal ? "proven optimal" : (R.timed_out ? "timed out" : "no proof");
