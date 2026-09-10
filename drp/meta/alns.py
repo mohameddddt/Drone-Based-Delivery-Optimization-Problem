@@ -50,6 +50,7 @@ from drp.core.solution import Solution
 from drp.meta.construct import warm_start_tour
 from drp.meta.encoding import random_tour
 from drp.meta.split import split
+from drp.meta.trace import MetaSample, MetaSegment, MetaTrace, MetaTracer
 
 # Scores awarded to the operators that produced a move.
 SCORE_NEW_BEST = 33.0
@@ -66,6 +67,7 @@ class ALNSResult:
     time: float = 0.0
     destroy_weights: dict = field(default_factory=dict)
     repair_weights: dict = field(default_factory=dict)
+    trace: Optional[MetaTrace] = None
 
 
 # ---------------------------------------------------------------------------
@@ -256,12 +258,26 @@ def solve_alns(inst: DRPInstance,
                min_destroy: float = 0.10,
                max_destroy: float = 0.40,
                absolute_max: int = 8,
-               noise: float = 0.03) -> ALNSResult:
+               noise: float = 0.03,
+               trace: bool = False,
+               trace_max_samples: int = 3000) -> ALNSResult:
     """Run ALNS.
 
     `reaction` controls how fast operator weights adapt; `noise` randomises the
     repair operators so destroy-and-repair does not keep regenerating the same
     few solutions (see `_insertion_costs`).
+
+    `trace=True` additionally records the search into `ALNSResult.trace` (see
+    `drp.meta.trace`): per-step working energy, temperature and which
+    destroy/repair pair was drawn, plus -- the point of tracing ALNS at all --
+    **one `MetaSegment` per weight update**, carrying the weights as they stood
+    after it and the usage and scores that produced them. Only the *final*
+    weights were reported before, which shows where the adaptation ended up but
+    not that it adapted.
+
+    Opt-in and free when off. For a fixed iteration budget it changes nothing;
+    under a wall-clock limit it costs a little time, so fewer iterations fit --
+    which is why `bench` and `compare` leave it off.
     """
     rng = random.Random(seed)
     t0 = time.time()
@@ -290,6 +306,16 @@ def solve_alns(inst: DRPInstance,
     dw, rw = [1.0] * nd, [1.0] * nr
     dscore, rscore = [0.0] * nd, [0.0] * nr
     dused, rused = [0] * nd, [0] * nr
+
+    tr = None
+    if trace:
+        tr = MetaTracer("alns", max_samples=trace_max_samples,
+                        params={"segment": segment, "reaction": reaction,
+                                "cooling": cooling, "T0": T, "seed": seed,
+                                "time_limit": time_limit,
+                                "start_temp_factor": start_temp_factor})
+        tr.trace.destroy_ops = [name for name, _ in DESTROY_OPS]
+        tr.trace.repair_ops = [name for name, _ in REPAIR_OPS]
 
     # How much to tear down each iteration.
     #
@@ -321,22 +347,39 @@ def solve_alns(inst: DRPInstance,
 
         ce, csol = energy_of(cand)
         if math.isinf(ce):
+            if tr is not None:
+                tr.add(MetaSample(step=it, t=time.time() - t0, best=best_e,
+                                  current=cur_e, event="infeasible",
+                                  temperature=T, accepted=False,
+                                  op_destroy=di, op_repair=ri))
             continue
 
         delta = ce - cur_e
         accepted = delta < 0 or rng.random() < math.exp(-delta / max(T, 1e-9))
+        event = "rejected"
         if accepted:
             cur, cur_e, cur_sol = cand, ce, csol
             if cur_e < best_e - 1e-9:
                 best, best_e, best_sol = cur[:], cur_e, cur_sol
                 dscore[di] += SCORE_NEW_BEST
                 rscore[ri] += SCORE_NEW_BEST
+                event = "new_best"
             elif delta < 0:
                 dscore[di] += SCORE_IMPROVED
                 rscore[ri] += SCORE_IMPROVED
+                event = "improved"
             else:
                 dscore[di] += SCORE_ACCEPTED
                 rscore[ri] += SCORE_ACCEPTED
+                event = "accepted"
+
+        if tr is not None:
+            now = time.time() - t0
+            if event == "new_best":
+                tr.event(it, now, "new_best", best_e)
+            tr.add(MetaSample(step=it, t=now, best=best_e, current=cur_e,
+                              event=event, temperature=T, accepted=accepted,
+                              op_destroy=di, op_repair=ri))
 
         T *= cooling
 
@@ -349,6 +392,11 @@ def solve_alns(inst: DRPInstance,
                 if rused[i]:
                     rw[i] = (1 - reaction) * rw[i] + reaction * rscore[i] / rused[i]
                     rw[i] = max(rw[i], 0.05)
+            if tr is not None:
+                tr.segment(MetaSegment(step=it, t=time.time() - t0,
+                                       destroy_weights=dw[:], repair_weights=rw[:],
+                                       destroy_used=dused[:], repair_used=rused[:],
+                                       destroy_scores=dscore[:], repair_scores=rscore[:]))
             dscore, rscore = [0.0] * nd, [0.0] * nr
             dused, rused = [0] * nd, [0] * nr
 
@@ -361,4 +409,9 @@ def solve_alns(inst: DRPInstance,
     res.time = time.time() - t0
     res.destroy_weights = {DESTROY_OPS[i][0]: round(dw[i], 3) for i in range(nd)}
     res.repair_weights = {REPAIR_OPS[i][0]: round(rw[i], 3) for i in range(nr)}
+    if tr is not None:
+        last = (MetaSample(step=res.iterations - 1, t=res.time, best=best_e,
+                           current=cur_e, temperature=T)
+                if res.iterations > 0 else None)
+        res.trace = tr.finish(res.iterations, last)
     return res

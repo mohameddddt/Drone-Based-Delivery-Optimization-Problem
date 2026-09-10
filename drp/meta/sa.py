@@ -23,6 +23,7 @@ from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
 from drp.meta.encoding import random_neighbour, random_tour
 from drp.meta.split import split
+from drp.meta.trace import MetaSample, MetaTrace, MetaTracer
 
 
 @dataclass
@@ -35,6 +36,7 @@ class SAResult:
     reheats: int = 0
     accepted: int = 0
     accepted_uphill: int = 0
+    trace: Optional[MetaTrace] = None
 
 
 def solve_sa(inst: DRPInstance,
@@ -44,7 +46,23 @@ def solve_sa(inst: DRPInstance,
              init_accept: float = 0.8,
              reheat_after: int = 4000,
              time_limit: float = 30.0,
-             warm_tour: Optional[Sequence[int]] = None) -> SAResult:
+             warm_tour: Optional[Sequence[int]] = None,
+             trace: bool = False,
+             trace_max_samples: int = 3000) -> SAResult:
+    """Run simulated annealing.
+
+    `trace=True` additionally records the search into `SAResult.trace` (see
+    `drp.meta.trace`): the working energy, the best-so-far and the temperature
+    over both iteration index and wall-clock seconds, with reheats marked. It is
+    opt-in and costs nothing when off.
+
+    On the invariance claim, precisely: **for a fixed iteration budget the trace
+    changes nothing** -- same solution, energy, history, acceptance counts and
+    reheats, because it consumes no random numbers and takes no branches the
+    search can see. Under a *wall-clock* limit it does cost a little time, so
+    fewer iterations fit inside the budget and the answer may differ, exactly as
+    any other overhead would. That is why `bench` and `compare` leave it off.
+    """
     rng = random.Random(seed)
     t0 = time.time()
     res = SAResult()
@@ -72,16 +90,31 @@ def solve_sa(inst: DRPInstance,
     avg_delta = (sum(deltas) / len(deltas)) if deltas else 1.0
     T = T0 = -avg_delta / math.log(init_accept) if avg_delta > 0 else 1.0
 
+    tr = None
+    if trace:
+        tr = MetaTracer("sa", max_samples=trace_max_samples,
+                        params={"gamma": gamma, "init_accept": init_accept,
+                                "reheat_after": reheat_after, "T0": T0,
+                                "seed": seed, "time_limit": time_limit})
+
     stagnation = 0
+    it = 0
     for it in range(max_iter):
         if time.time() - t0 > time_limit:
             break
         cand = random_neighbour(cur, rng)
         ce, csol = energy_of(cand)
         if math.isinf(ce):
+            if tr is not None:
+                tr.add(MetaSample(step=it, t=time.time() - t0, best=best_e,
+                                  current=cur_e, event="infeasible",
+                                  temperature=T, accepted=False))
             continue
         delta = ce - cur_e
+        event = "rejected"
+        took = False
         if delta < 0 or rng.random() < math.exp(-delta / max(T, 1e-9)):
+            took = True
             cur, cur_e, cur_sol = cand, ce, csol
             res.accepted += 1
             if delta > 0:
@@ -89,10 +122,19 @@ def solve_sa(inst: DRPInstance,
             if cur_e < best_e - 1e-9:
                 best, best_e, best_sol = cur[:], cur_e, cur_sol
                 stagnation = 0
+                event = "new_best"
             else:
                 stagnation += 1
+                event = "improved" if delta < 0 else "accepted"
         else:
             stagnation += 1
+
+        if tr is not None:
+            now = time.time() - t0
+            if event == "new_best":
+                tr.event(it, now, "new_best", best_e)
+            tr.add(MetaSample(step=it, t=now, best=best_e, current=cur_e,
+                              event=event, temperature=T, accepted=took))
 
         T *= gamma
         if stagnation >= reheat_after:
@@ -100,6 +142,8 @@ def solve_sa(inst: DRPInstance,
             stagnation = 0
             res.reheats += 1
             cur, cur_e, cur_sol = best[:], best_e, best_sol
+            if tr is not None:
+                tr.event(it, time.time() - t0, "reheat", T)
 
         if it % 200 == 0:
             res.history.append(best_e)
@@ -108,4 +152,9 @@ def solve_sa(inst: DRPInstance,
     res.best_solution = best_sol
     res.best_energy = best_e
     res.time = time.time() - t0
+    if tr is not None:
+        last = (MetaSample(step=res.iterations - 1, t=res.time, best=best_e,
+                           current=cur_e, temperature=T)
+                if res.iterations > 0 else None)
+        res.trace = tr.finish(res.iterations, last)
     return res
