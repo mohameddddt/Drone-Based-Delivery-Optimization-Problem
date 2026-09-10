@@ -39,7 +39,7 @@ jobs:
           drp solve /tmp/inst.json --method alns --time 5 -o /tmp/sol.json
           drp solve /tmp/inst.json --method bnb --time 5
           drp export /tmp/sol.json --instance /tmp/inst.json --format geojson -o /tmp/out.geojson
-          drp show /tmp/sol.json --instance /tmp/inst.json -o /tmp/routes.png
+          drp show /tmp/sol.json --instance /tmp/inst.json -o /tmp/routes.png --web /tmp/flight.html
 
       - name: Experiment pipeline smoke test
         run: |

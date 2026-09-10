@@ -8,13 +8,16 @@ The graded submission is done and unchanged. This document tracks the work *afte
 that — turning a 37-cell notebook into software other people can use.
 
 **P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
-B&B bound and §6's significance testing are now in too. P2 (interactive visualisation),
-P4 (real geography, benchmark import, service) and most of P5 are not started.
+B&B bound and §6's significance testing are now in too. §2.2's playback has been rebuilt
+as an interactive GSAP web page, and then rebuilt again around a real pan/zoom map after a
+browser-driven design review. P2's remaining pieces (B&B tree explorer, SA/GA
+dashboards, SVG export), P4 (real geography, benchmark import, service) and most of P5
+are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅; interactive map, B&B tree explorer, SA/GA dashboards, SVG export ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page); B&B tree explorer, SA/GA dashboards, SVG export ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
@@ -23,7 +26,7 @@ P4 (real geography, benchmark import, service) and most of P5 are not started.
 
 | # | Quick win | Status |
 |---|---|---|
-| §2.2 | Animated route playback | ✅ `drp show --animate` |
+| §2.2 | Animated route playback | ✅ `drp show --animate` (GIF) and `--web` (pan/zoom GSAP replay page) |
 | §1.4 | Split-DP brute-force test | ✅ `tests/test_split_optimality.py` |
 | §4.1 | Polygonal no-fly via visibility graph | ✅ `drp/geometry/visibility.py` |
 | §5.2 | ALNS | ✅ `drp/meta/alns.py` |
@@ -64,7 +67,7 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 
 ### §1.4 Tests
 
-**159 tests.** The ones the roadmap called for specifically:
+**165 tests.** The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -218,6 +221,108 @@ simultaneously, batteries draining, trails building, and a **red flash when two 
 within the separation distance**. Nothing enforces separation yet (that is §4.5), so those
 flashes are precisely the conflicts a deconfliction model would have to resolve.
 
+### §2.2 Interactive web playback
+
+`drp show sol.json --instance inst.json --web flight.html` renders the same story as a
+single self-contained HTML file — open it directly in a browser, nothing to serve.
+
+This has been through three passes. The first was a sci-fi mission-control HUD, rejected
+as generic. The second built a grounded aviation-chart identity on top of it. The third
+(driven by `drone_delivery_visualisation_gsap_brief.md`, and by inspecting the running page
+in a browser rather than reasoning about the source) found that the second pass still read
+as a diagram with icons on it, and rebuilt the map and interaction layers outright.
+
+**What the third pass changed.**
+
+- **The map is a map you can handle.** Drag to pan with release inertia, wheel-zoom toward
+  the cursor, pinch on touch, `+`/`−`/reset controls, arrow keys and `0`. A live scale bar
+  and coordinate readout track the camera, and the graticule picks "nice" intervals per
+  zoom level. Stops, aircraft, the hub and place labels counter-scale so they hold a
+  constant *screen* size while the terrain zooms; route strokes hold a constant screen
+  weight the same way. This was the single biggest gap — the previous version's camera
+  moved only when the code moved it, which is not what anyone expects from a map.
+- **The basemap was redrawn, not decorated.** It had been a jittered street grid with
+  building rectangles scattered on it, which at any zoom read as noise. It is now composed
+  like an aeronautical sheet: a river with banks and bridges where arterials cross it,
+  land-use polygons for built-up areas and parks, and a **radial + ring road network
+  centred on the hub**, so the road layout itself says where the depot is. Streets and
+  buildings are masked to dry, built-up land. District labels are placed with collision
+  rejection, so two names can never overprint. Still seeded deterministically from the
+  instance, so it stays reproducible.
+- **Delivery stops became the content layer.** They were house glyphs indistinguishable
+  from the building texture — genuinely invisible mid-flight, which is a serious failure
+  for the one thing the problem is *about*. They are now numbered chart symbols pinned to
+  their exact coordinate, with four legible states: pending → inbound (pulsing) →
+  delivering (radial burst) → delivered (green, checked).
+- **The timeline became an instrument.** One lane per drone showing its airborne span with
+  its delivery ticks inside it, event diamonds embedded in the track, a NOW playhead,
+  drag-anywhere scrubbing and keyboard seek. Seeking backwards un-fires events, so the
+  replay stays a replay instead of an ever-growing tally.
+- **The rail carries the solver's story**, not just the fleet's: objective, flown distance,
+  drones used, battery/payload limits, separation minimum, certificate reason — beside a
+  live event stream. Clicking a drone still dims the rest, frames its route, redraws its
+  trail so you *discover* the path, and opens a "why this route" panel built from
+  `certificate.routes[k]` and the per-leg trace, now also showing the straight-line vs
+  flown distance and the resulting airspace detour cost.
+- **Restricted zones** keep the magenta aeronautical convention, but the hatch skirt is
+  clipped to the polygon interior (it used to fringe outside the boundary) and a zone
+  pulses when an aircraft comes near it.
+- A `Fleet sweep` button gives the page one signature move: pull back, brighten every
+  route, redraw them from the hub outward, settle exactly home. Everything still respects
+  `prefers-reduced-motion`, and the layout holds down to 430 px.
+
+**Four real bugs the browser inspection surfaced**, none of which the Python-side tests
+could have caught:
+
+1. **Deliveries fired at the wrong moment.** The service distance came from summing
+   `leg.distance`, but the aircraft flies `route_polyline`, which is *longer* whenever it
+   detours around a no-fly zone. The marker therefore flipped to delivered before the drone
+   arrived — precisely on the instances where the geometry matters most. Now read off the
+   flown polyline by matching each customer's coordinate to its vertex.
+2. **Six separation breaches at `d=0`.** Every drone departs the same point at the same
+   instant, so the whole fleet is inside the separation minimum before it has flown
+   anywhere. The page opened reporting six conflicts on a feasible, conflict-free solution.
+   Separation is now assessed only once an aircraft has cleared a terminal-area radius —
+   and that radius is **displayed in the solver panel** rather than quietly applied, since
+   it is an assumption the model does not itself make. Predicted breaches on the sample
+   instance: 0.
+3. **The map painted over the rail.** `.map-panel` had `aspect-ratio` while its grid row
+   stretched to the tallest item, so the *height* fed back into the *width*: once the event
+   log grew past the map, the map widened and covered the manifest. The rail is now
+   height-bound to the map and scrolls internally.
+4. **A tween that never died.** `setDelivered` cleared the inbound pulse via
+   `setApproaching(id, false)`, whose guard had already seen `delivered === true` and
+   returned before killing the tween — leaving a ring expanding forever around every served
+   stop. Plus: drone markers didn't re-scale when zooming while paused, because their
+   transform was only written by the per-frame `render()`.
+
+Python's only job is still producing one JSON payload (`drp/viz/webdata.py`) — **unchanged
+across all three passes**, because every one of the above reads fields that payload already
+had. All choreography lives in `drp/viz/web/playback_template.html`. That split is
+deliberate: the search-visualisation work planned next (§2.4 — B&B tree, SA/GA dashboards)
+will reuse the same data-in/choreography-out pattern once B&B/GA/SA get step-by-step trace
+instrumentation.
+
+Still deliberately absent: **Solver Vision** (candidate routes considered and rejected),
+which the brief asks for and which would be the most persuasive feature on the page. B&B,
+GA and SA do not expose intermediate search states, and the brief's own rule — do not
+fabricate what the solver does not produce — makes faking it the wrong move. It is blocked
+on §2.4's trace instrumentation, not on the front end.
+
+On coverage, stated plainly: `tests/test_viz_web.py` (6 tests) pins the **Python** side —
+one flight per used route, cumulative distance agreeing with `route_energy`/`route_weight`,
+detour-aware polylines, the separation default matching `animate_routes`, and placeholder
+substitution. **There is still no browser test harness**, so none of the JavaScript above
+is covered by CI; the four bugs listed were found by driving the page in Playwright by
+hand. A headless smoke test of the rendered page is the obvious next hardening step.
+
+Earlier correctness bug, still worth recording: several lookups (`rows[f.drone]`,
+`DATA.flights[id]`, `DATA.solution.routes[id]`) originally assumed array index equals drone
+id. That only holds when every drone has a non-empty route — `build_playback_data` lists
+only *used* routes, so an idle drone partway through the fleet would silently misalign every
+later drone's marker, telemetry row and "why this route" panel. Fixed by looking up
+everywhere via the real `drone` field.
+
 ---
 
 ## The committed run
@@ -340,7 +445,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **159 tests pass** — 142 fast (~35 s), 17 slow (~45 s).
+- **165 tests pass** — 148 fast (~35 s), 17 slow (~45 s).
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
