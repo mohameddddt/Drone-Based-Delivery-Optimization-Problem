@@ -79,6 +79,22 @@ METHODS = ("greedy", "bnb", "ga", "sa", "alns")
 DEFAULT_FORMATS = ("pdf", "png")
 
 
+#: The fraction of `	extwidth` each figure is placed at in report.tex. The
+#: plot functions use it to size type and strokes so they land readable *on the
+#: page* -- see `drp.viz.static.report_typography`. Keep this in step with the
+#: `\includegraphics[width=...]` calls; a figure listed at the wrong width
+#: gets type that is merely differently wrong.
+PLACED_AT = {
+    "fig_comparison": 1.00,
+    "fig_gap": 1.00,
+    "fig_bnb_dual": 1.00,
+    "fig_runtime": 1.00,
+    "fig_convergence": 0.90,
+    "fig_routes": 0.65,
+    "fig_zones": 0.72,
+}
+
+
 def _save_all(plot, stem, formats, *args, **kwargs):
     """Call `plot(*args, path, **kwargs)` once per format and report each.
 
@@ -86,6 +102,8 @@ def _save_all(plot, stem, formats, *args, **kwargs):
     table-driven figures. The three that need a live solver run compute the
     run once and re-plot the *result*, so no solver ever runs twice.
     """
+    if stem in PLACED_AT:
+        kwargs.setdefault("placed_at", PLACED_AT[stem])
     for fmt in formats:
         path = RESULTS / f"{stem}.{fmt.lstrip('.')}"
         print(f"saved {plot(*args, path, **kwargs)}")

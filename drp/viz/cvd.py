@@ -43,18 +43,26 @@ _DEUTAN = np.array([
     [0.9513092, 0.0, 0.04264257],
     [0.0, 0.0, 1.0],
 ])
-# Brettel 1997 tritanopia: two half-planes, hinged on the neutral axis. Which
-# half applies depends on which side of the plane through E and the two anchor
-# stimuli the colour falls.
+# Brettel 1997 tritanopia: two half-planes hinged on the neutral axis, because
+# a single projection plane does not model it. Which half applies depends on
+# which side of the separation plane the colour falls.
+#
+# These are stated in **linear sRGB**, not LMS, and are applied there -- the
+# form libDaltonLens publishes. That is not a stylistic choice: the separation
+# plane's normal is defined in linear RGB, and testing a colour against it in
+# LMS instead sends mid-greys to the wrong half-plane, which shows up as a
+# neutral grey acquiring a colour cast. `tests/test_viz_theme.py` asserts the
+# neutral axis is fixed, which is the cheapest way to catch exactly that.
+_TRITAN_NORMAL = np.array([0.34478, -0.65518, 0.0])
 _TRITAN_A = np.array([
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [-0.86744736, 1.86727089, 0.0],
+    [1.01277, 0.13548, -0.14826],
+    [-0.01243, 0.86812, 0.14431],
+    [0.07589, 0.80500, 0.11911],
 ])
 _TRITAN_B = np.array([
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.15374045, -0.15310494, 0.0],
+    [0.93678, 0.18979, -0.12657],
+    [0.06154, 0.81526, 0.12320],
+    [-0.37562, 1.12767, 0.24796],
 ])
 
 
@@ -90,20 +98,16 @@ def simulate_array(rgb: np.ndarray, kind: str) -> np.ndarray:
         raise ValueError(f"unknown deficiency {kind!r}; expected one of {KINDS}")
 
     lin = _srgb_to_linear(rgb)
+
+    if kind == "tritanopia":
+        # Brettel's hinge, in linear RGB where the plane normal is defined.
+        side = lin @ _TRITAN_NORMAL
+        a = lin @ _TRITAN_A.T
+        b = lin @ _TRITAN_B.T
+        return _linear_to_srgb(np.where((side >= 0)[..., None], a, b))
+
     lms = lin @ _RGB2LMS.T
-
-    if kind == "protanopia":
-        out = lms @ _PROTAN.T
-    elif kind == "deuteranopia":
-        out = lms @ _DEUTAN.T
-    else:
-        # Brettel's hinge: compare against the plane spanned by the neutral
-        # axis and the 475 nm anchor.
-        lhs = lms[..., 0] * 0.34478 - lms[..., 1] * 0.65518
-        a = lms @ _TRITAN_A.T
-        b = lms @ _TRITAN_B.T
-        out = np.where((lhs >= 0)[..., None], a, b)
-
+    out = lms @ (_PROTAN if kind == "protanopia" else _DEUTAN).T
     return _linear_to_srgb(out @ _LMS2RGB.T)
 
 

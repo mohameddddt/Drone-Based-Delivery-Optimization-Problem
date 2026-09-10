@@ -40,6 +40,76 @@ VECTOR_SUFFIXES = frozenset({".svg", ".svgz", ".pdf", ".eps", ".ps"})
 
 plt.rcParams.update({"font.size": 11, "axes.grid": True, "grid.alpha": 0.3})
 
+#: `report/report.tex` is `article`, 11 pt, A4, `margin=2.5cm`, so the text
+#: block is 21 - 5 = 16 cm.
+TEXTWIDTH_IN = 16.0 / 2.54
+
+#: What figure text should measure *on the printed page*, in points. 7 pt is
+#: the usual floor for a figure annotation; below that it is decoration.
+TARGET_PT = {"base": 9.0, "tick": 8.0, "annot": 7.0, "legend": 7.5}
+
+
+class report_typography:
+    """Set type and stroke sizes so they land at `TARGET_PT` *on the page*.
+
+    A figure drawn 12 inches wide and placed at `\\textwidth` is shrunk to 0.54
+    of its size by LaTeX, which takes 11 pt text down to 6 pt and an 8 pt
+    annotation down to 4.3 pt. At `dpi=150` that was invisible -- a 4 pt label
+    rasterises to a grey smudge that reads as "fine print" and nobody looks
+    closer. In vector output it is crisp, and unmistakably too small.
+
+    So each figure declares the fraction of `\\textwidth` it is placed at, and
+    everything typographic is divided by the resulting scale. Line widths and
+    marker sizes go with it: a 1.8 pt route stroke shrunk to 1.0 pt is a
+    hairline, and a hairline is what disappears first at print resolution.
+
+    Used as a context manager so it cannot leak into the next figure::
+
+        with report_typography(12.0, 1.0):
+            ...
+
+    `placed_at=None` disables it -- which is what `drp show` does, because a
+    figure someone asked for by name is not going into this report.
+    """
+
+    def __init__(self, fig_width_in: float, placed_at: Optional[float]):
+        self.scale = (None if not placed_at
+                      else (TEXTWIDTH_IN * placed_at) / fig_width_in)
+        self._ctx = None
+
+    def __enter__(self):
+        if self.scale is None or abs(self.scale - 1.0) < 1e-9:
+            return self
+        k = 1.0 / self.scale
+        self._ctx = plt.rc_context({
+            "font.size": TARGET_PT["base"] * k,
+            "axes.titlesize": TARGET_PT["base"] * k,
+            "axes.labelsize": TARGET_PT["base"] * k,
+            "xtick.labelsize": TARGET_PT["tick"] * k,
+            "ytick.labelsize": TARGET_PT["tick"] * k,
+            "legend.fontsize": TARGET_PT["legend"] * k,
+            "lines.linewidth": 1.5 * k,
+            "lines.markersize": 5.0 * k,
+            "axes.linewidth": 0.8 * k,
+            "grid.linewidth": 0.8 * k,
+            "xtick.major.width": 0.8 * k,
+            "ytick.major.width": 0.8 * k,
+            "patch.linewidth": 0.8 * k,
+        })
+        self._ctx.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        if self._ctx is not None:
+            self._ctx.__exit__(*exc)
+        return False
+
+    @property
+    def k(self) -> float:
+        """The multiplier a caller should apply to an explicit size of its own."""
+        return 1.0 if self.scale is None else 1.0 / self.scale
+
+
 # Kept as module constants because `webdata`, `treedata` and `dashdata` have
 # imported them by name since 2.2. They are the *default* theme's values;
 # anything that wants a specific theme should go through `drp.viz.theme`.
@@ -88,32 +158,6 @@ def save_figure(fig, path: PathLike, dpi: int = 150) -> Path:
 _save = save_figure
 
 
-def save_figure_formats(fig, path: PathLike, formats: Sequence[str],
-                        dpi: int = 150) -> list:
-    """Save one figure once per suffix in `formats`, e.g. ``("png", "svg")``.
-
-    The figure is closed after the last one, so callers must not reuse it.
-    """
-    base = Path(path)
-    out = []
-    for i, fmt in enumerate(formats):
-        f = fmt if fmt.startswith(".") else f".{fmt}"
-        p = base.with_suffix(f)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        if is_vector(p):
-            kw: Dict[str, Any] = {}
-            if p.suffix.lower() in (".svg", ".svgz"):
-                kw["metadata"] = {"Date": None}
-            elif p.suffix.lower() == ".pdf":
-                kw["metadata"] = {"CreationDate": None}
-            fig.savefig(p, **kw)
-        else:
-            fig.savefig(p, dpi=dpi)
-        out.append(p)
-    plt.close(fig)
-    return out
-
-
 def route_polyline(inst: DRPInstance, route: Sequence[int]):
     """The flown path as x and y arrays, detouring around any no-fly zones."""
     nodes = [0] + list(route) + [0]
@@ -135,99 +179,117 @@ def plot_routes(inst: DRPInstance,
                 sol: Solution,
                 path: PathLike = "routes.png",
                 title: Optional[str] = None,
-                theme: Optional[Union[str, Theme]] = None) -> Path:
+                theme: Optional[Union[str, Theme]] = None,
+                placed_at: Optional[float] = None) -> Path:
     """Draw a solution: depot, customers, no-fly zones and the flown routes.
 
     Each drone gets a colour, a dash pattern and a marker shape from the theme,
     all three keyed on the same index, so the routes stay separable in
     greyscale and under any colour-vision deficiency.
+
+    `placed_at` is the fraction of `\textwidth` this figure will be printed
+    at; give it and the type and stroke sizes are chosen so they land at a
+    readable size *on the page*. See `report_typography`.
     """
     th = resolve(theme)
-    fig, ax = plt.subplots(figsize=(7.5, 7))
-    co = inst.coords
+    with report_typography(7.5, placed_at) as rt:
+        fig, ax = plt.subplots(figsize=(7.5, 7))
+        co = inst.coords
 
-    for poly in inst.nofly_zones:
-        patch = plt.Polygon(np.array(poly), closed=True, facecolor=th.restricted,
-                            alpha=0.14, edgecolor=th.restricted, linestyle="--",
-                            linewidth=1.2, hatch="//", zorder=1)
-        ax.add_patch(patch)
+        for poly in inst.nofly_zones:
+            patch = plt.Polygon(np.array(poly), closed=True,
+                                facecolor=th.restricted, alpha=0.14,
+                                edgecolor=th.restricted, linestyle="--",
+                                linewidth=1.2 * rt.k, hatch="//", zorder=1)
+            ax.add_patch(patch)
 
-    for ri, route in enumerate(sol.used_routes()):
-        xs, ys = route_polyline(inst, route)
-        ax.plot(xs, ys, color=th.color(ri), linestyle=th.mpl_dash(ri),
-                linewidth=1.8, zorder=2,
-                label=f"drone {ri + 1} (E={route_energy(inst, route):.0f})")
-        ax.plot([co[c][0] for c in route], [co[c][1] for c in route],
-                linestyle="none", marker=th.marker(ri), color=th.color(ri),
-                markersize=6, markeredgecolor=th.panel, markeredgewidth=0.6,
-                zorder=3)
+        for ri, route in enumerate(sol.used_routes()):
+            xs, ys = route_polyline(inst, route)
+            ax.plot(xs, ys, color=th.color(ri), linestyle=th.mpl_dash(ri),
+                    linewidth=1.8 * rt.k, zorder=2,
+                    label=f"drone {ri + 1} (E={route_energy(inst, route):.0f})")
+            ax.plot([co[c][0] for c in route], [co[c][1] for c in route],
+                    linestyle="none", marker=th.marker(ri), color=th.color(ri),
+                    markersize=6 * rt.k, markeredgecolor=th.panel,
+                    markeredgewidth=0.6 * rt.k, zorder=3)
 
-    ax.plot(co[0][0], co[0][1], "*", color=th.ink, markersize=20, zorder=4,
-            label="depot")
-    for c in range(1, inst.N):
-        ax.annotate(str(c), (co[c][0], co[c][1]), fontsize=8, zorder=5,
-                    color=th.ink, textcoords="offset points", xytext=(4, 4))
+        ax.plot(co[0][0], co[0][1], "*", color=th.ink,
+                markersize=14 * rt.k, zorder=4, label="depot")
+        for c in range(1, inst.N):
+            # The offset is in points, so it scales with the type -- otherwise
+            # bigger labels sit on top of their own markers and each other.
+            ax.annotate(str(c), (co[c][0], co[c][1]),
+                        fontsize=TARGET_PT["annot"] * rt.k, zorder=5,
+                        color=th.ink, textcoords="offset points",
+                        xytext=(4 * rt.k, 4 * rt.k))
 
-    ax.set_title(title or inst.name)
-    ax.legend(fontsize=8)
-    ax.set_aspect("equal", adjustable="datalim")
-    fig.tight_layout()
-    return save_figure(fig, path)
+        ax.set_title(title or inst.name)
+        ax.legend()
+        ax.set_aspect("equal", adjustable="datalim")
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_method_comparison(recs: Sequence[Dict[str, Any]],
                            methods: Sequence[str],
                            path: PathLike,
-                           theme: Optional[Union[str, Theme]] = None) -> Path:
+                           theme: Optional[Union[str, Theme]] = None,
+                           placed_at: Optional[float] = None) -> Path:
     th = resolve(theme)
     names = [r["instance"] for r in recs]
     x = np.arange(len(names))
     width = 0.8 / max(len(methods), 1)
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    for mi, m in enumerate(methods):
-        vals = [r.get(f"{m}_best") or np.nan for r in recs]
-        ax.bar(x + (mi - (len(methods) - 1) / 2) * width, vals, width,
-               label=METHOD_LABELS.get(m, m), color=th.method_color(m, mi),
-               hatch=th.hatch(mi), edgecolor=th.panel, linewidth=0.5)
-    ax.set_xticks(x)
-    ax.set_xticklabels(names, rotation=45, ha="right")
-    ax.set_ylabel("Total energy (best)")
-    ax.set_title("Best solution energy by method and instance")
-    ax.legend()
-    fig.tight_layout()
-    return save_figure(fig, path)
+    with report_typography(12.0, placed_at) as rt:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        for mi, m in enumerate(methods):
+            vals = [r.get(f"{m}_best") or np.nan for r in recs]
+            ax.bar(x + (mi - (len(methods) - 1) / 2) * width, vals, width,
+                   label=METHOD_LABELS.get(m, m), color=th.method_color(m, mi),
+                   hatch=th.hatch(mi), edgecolor=th.panel, linewidth=0.5 * rt.k)
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=45, ha="right")
+        ax.set_ylabel("Total energy (best)")
+        ax.set_title("Best solution energy by method and instance")
+        ax.legend()
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_gap_to_reference(recs: Sequence[Dict[str, Any]],
                           methods: Sequence[str],
                           path: PathLike,
-                          theme: Optional[Union[str, Theme]] = None) -> Path:
+                          theme: Optional[Union[str, Theme]] = None,
+                          placed_at: Optional[float] = None) -> Path:
     th = resolve(theme)
     names = [r["instance"] for r in recs]
     x = np.arange(len(names))
-    fig, ax = plt.subplots(figsize=(12, 4.5))
-    for mi, m in enumerate(methods):
-        vals = [r.get(f"{m}_gap_pct") for r in recs]
-        ax.plot(x, vals, marker=th.method_marker(m),
-                linestyle=th.method_mpl_dash(m), label=METHOD_LABELS.get(m, m),
-                color=th.method_color(m, mi))
-    for i, r in enumerate(recs):
-        if r.get("ref_is_proven_optimum"):
-            ax.axvspan(i - 0.5, i + 0.5, color=th.accent, alpha=0.10,
-                       hatch="\\\\", edgecolor=th.accent, linewidth=0)
-    ax.axhline(0, color=th.ink, linewidth=0.8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(names, rotation=45, ha="right")
-    ax.set_ylabel("% above reference")
-    ax.set_title("Gap to reference (shaded = proven optimum, elsewhere best-known)")
-    ax.legend()
-    fig.tight_layout()
-    return save_figure(fig, path)
+    with report_typography(12.0, placed_at) as rt:
+        fig, ax = plt.subplots(figsize=(12, 4.5))
+        for mi, m in enumerate(methods):
+            vals = [r.get(f"{m}_gap_pct") for r in recs]
+            ax.plot(x, vals, marker=th.method_marker(m),
+                    linestyle=th.method_mpl_dash(m),
+                    label=METHOD_LABELS.get(m, m),
+                    color=th.method_color(m, mi))
+        for i, r in enumerate(recs):
+            if r.get("ref_is_proven_optimum"):
+                ax.axvspan(i - 0.5, i + 0.5, color=th.accent, alpha=0.10,
+                           hatch="\\\\", edgecolor=th.accent, linewidth=0)
+        ax.axhline(0, color=th.ink, linewidth=0.8 * rt.k)
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=45, ha="right")
+        ax.set_ylabel("% above reference")
+        ax.set_title(
+            "Gap to reference (shaded = proven optimum, elsewhere best-known)")
+        ax.legend()
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_bnb_dual_gap(recs: Sequence[Dict[str, Any]], path: PathLike,
-                      theme: Optional[Union[str, Theme]] = None) -> Path:
+                      theme: Optional[Union[str, Theme]] = None,
+                      placed_at: Optional[float] = None) -> Path:
     """Incumbent vs dual bound per instance -- what 5.1 buys us.
 
     Before the anytime bound, a timed-out run reported a number with no context.
@@ -240,68 +302,77 @@ def plot_bnb_dual_gap(recs: Sequence[Dict[str, Any]], path: PathLike,
     ub = [r["bnb_best"] for r in recs]
     lb = [r.get("bnb_dual") if r.get("bnb_dual") is not None else 0 for r in recs]
 
-    fig, ax = plt.subplots(figsize=(12, 4.5))
-    ax.vlines(x, lb, ub, color=th.accent, linewidth=6, alpha=0.35,
-              label="proved interval [LB, incumbent]")
-    ax.plot(x, ub, "o", color=th.accent, label="incumbent (upper bound)")
-    ax.plot(x, lb, "v", color=th.caution, label="dual bound (lower bound)")
-    for i, r in enumerate(recs):
-        if r.get("bnb_opt"):
-            ax.annotate("proved", (i, ub[i]), fontsize=7, ha="center",
-                        color=th.ink, textcoords="offset points", xytext=(0, 8))
-    ax.set_xticks(x)
-    ax.set_xticklabels(names, rotation=45, ha="right")
-    ax.set_ylabel("Energy")
-    ax.set_title("Branch & Bound: where the optimum is known to lie")
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    return save_figure(fig, path)
+    with report_typography(12.0, placed_at) as rt:
+        fig, ax = plt.subplots(figsize=(12, 4.5))
+        ax.vlines(x, lb, ub, color=th.accent, linewidth=6 * rt.k, alpha=0.35,
+                  label="proved interval [LB, incumbent]")
+        ax.plot(x, ub, "o", color=th.accent, label="incumbent (upper bound)")
+        ax.plot(x, lb, "v", color=th.caution, label="dual bound (lower bound)")
+        for i, r in enumerate(recs):
+            if r.get("bnb_opt"):
+                ax.annotate("proved", (i, ub[i]),
+                            fontsize=TARGET_PT["annot"] * rt.k, ha="center",
+                            color=th.ink, textcoords="offset points",
+                            xytext=(0, 8 * rt.k))
+        ax.set_xticks(x)
+        ax.set_xticklabels(names, rotation=45, ha="right")
+        ax.set_ylabel("Energy")
+        ax.set_title("Branch & Bound: where the optimum is known to lie")
+        ax.legend()
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_convergence(histories: Dict[str, Sequence[float]],
                      path: PathLike,
                      title: str = "Convergence",
-                     theme: Optional[Union[str, Theme]] = None) -> Path:
+                     theme: Optional[Union[str, Theme]] = None,
+                     placed_at: Optional[float] = None) -> Path:
     th = resolve(theme)
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    for mi, (method, hist) in enumerate(histories.items()):
-        if not hist:
-            continue
-        ax.plot(np.linspace(0, 1, len(hist)), hist,
-                color=th.method_color(method, mi),
-                linestyle=th.method_mpl_dash(method),
-                label=METHOD_LABELS.get(method, method))
-    ax.set_xlabel("normalised search progress")
-    ax.set_ylabel("best energy")
-    ax.set_title(title)
-    ax.legend()
-    fig.tight_layout()
-    return save_figure(fig, path)
+    with report_typography(9.0, placed_at):
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for mi, (method, hist) in enumerate(histories.items()):
+            if not hist:
+                continue
+            ax.plot(np.linspace(0, 1, len(hist)), hist,
+                    color=th.method_color(method, mi),
+                    linestyle=th.method_mpl_dash(method),
+                    label=METHOD_LABELS.get(method, method))
+        ax.set_xlabel("normalised search progress")
+        ax.set_ylabel("best energy")
+        ax.set_title(title)
+        ax.legend()
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_runtime(recs: Sequence[Dict[str, Any]],
                  methods: Sequence[str],
                  path: PathLike,
-                 theme: Optional[Union[str, Theme]] = None) -> Path:
+                 theme: Optional[Union[str, Theme]] = None,
+                 placed_at: Optional[float] = None) -> Path:
     th = resolve(theme)
     ns = [r["n"] for r in recs]
-    fig, ax = plt.subplots(figsize=(9, 4.5))
-    for mi, m in enumerate(methods):
-        vals = [max(r.get(f"{m}_time") or 1e-3, 1e-3) for r in recs]
-        ax.semilogy(ns, vals, marker=th.method_marker(m),
-                    linestyle=th.method_mpl_dash(m),
-                    color=th.method_color(m, mi), label=METHOD_LABELS.get(m, m))
-    solved = [r["n"] for r in recs if r.get("bnb_opt")]
-    if solved:
-        ax.axvline(max(solved) + 0.5, color=th.muted, linestyle=":", linewidth=1,
-                   label=f"B&B tractability limit ($n={max(solved)}$)")
-    ax.set_xlabel("Number of customers $n$")
-    ax.set_ylabel("Runtime (s, log scale)")
-    ax.set_title("Runtime vs instance size")
-    ax.set_xticks(ns)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    return save_figure(fig, path)
+    with report_typography(9.0, placed_at) as rt:
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for mi, m in enumerate(methods):
+            vals = [max(r.get(f"{m}_time") or 1e-3, 1e-3) for r in recs]
+            ax.semilogy(ns, vals, marker=th.method_marker(m),
+                        linestyle=th.method_mpl_dash(m),
+                        color=th.method_color(m, mi),
+                        label=METHOD_LABELS.get(m, m))
+        solved = [r["n"] for r in recs if r.get("bnb_opt")]
+        if solved:
+            ax.axvline(max(solved) + 0.5, color=th.muted, linestyle=":",
+                       linewidth=1.0 * rt.k,
+                       label=f"B&B tractability limit ($n={max(solved)}$)")
+        ax.set_xlabel("Number of customers $n$")
+        ax.set_ylabel("Runtime (s, log scale)")
+        ax.set_title("Runtime vs instance size")
+        ax.set_xticks(ns)
+        ax.legend()
+        fig.tight_layout()
+        return save_figure(fig, path)
 
 
 def plot_theme_swatches(path: PathLike,

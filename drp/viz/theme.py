@@ -15,18 +15,27 @@ There are two of them and they are interchangeable:
 Why ``chart`` had to be replaced rather than tweaked, in numbers. Its six route
 colours are ``#2E75B6 #C0504D #4E8542 #8064A2 #F79646 #4BACC6``. Simulated, the
 closest pair in that set falls to dE*ab 26.2 for normal vision, 9.4 under
-protanopia (blue / purple), **7.8 under deuteranopia (red / green)** and 13.9
+protanopia (blue / purple), **7.8 under deuteranopia (red / green)** and 16.4
 under tritanopia. A dE of 7.8 is "the same colour with a bad print". ``safe``
-scores 30.3 at its worst pair across all three deficiencies -- and its route
-palette is also held a measured distance away from the *semantic* colours, so
-no hex ever means two things at once.
+scores 29.5 at its worst pair across all three deficiencies -- and its route
+palette is also held clear of the *semantic* colours, so no hex ever means two
+things at once.
+
+That last separation is 11.2 at its tightest, which is not a lot, and it is a
+deliberate limit rather than an oversight: six route colours, five semantic
+ones and a sequential ramp cannot all be mutually far apart at 3:1 contrast on
+a cream page. The pairs that end up closest -- a dark red route against the
+crimson a breach flashes in -- are drawn as different *kinds* of mark, a stroke
+against a dashed ring with a labelled banner. Which is the reason colour is
+never allowed to be the only channel.
 
 The ramp was the surprise. The tree explorer's teal -> amber -> magenta bound
 ramp was expected to be close to safe. It is not: under deuteranopia its far end
-lands dE 9.4 from its near end while its **middle** is 57.9 away, so the ramp
-folds back on itself and the highest bounds look like the lowest. ``safe``'s
-ramp is monotone in perceived distance under all three deficiencies, which is
-the property a sequential ramp actually needs.
+lands dE 9.3 from its near end while its **middle** is 58.3 away, so the ramp
+folds back on itself and the highest bounds look like the lowest -- and it is
+not monotone for normal vision either. ``safe``'s ramp is monotone in perceived
+distance under all four, which is the property a sequential ramp actually
+needs.
 
 **Colour is never the only channel.** Every theme also carries dash patterns,
 marker shapes and bar hatches, keyed the same way as the colours, so a route, a
@@ -198,7 +207,7 @@ SAFE = Theme(
                  "simulated protanopia, deuteranopia and tritanopia, at >=3:1 "
                  "contrast on the page background, and held clear of the "
                  "semantic colours so no hex carries two meanings."),
-    palette=("#002E89", "#B64924", "#522E5B", "#7680BF", "#6D0924", "#AD7689"),
+    palette=("#002E89", "#B60012", "#52245B", "#7680BF", "#6D0924", "#AD7689"),
     dashes=_DASHES, markers=_MARKERS, hatches=_HATCHES,
     ink="#1A1D22", muted="#545963", muted2="#868C96",
     line="#D2D4CE", line2="#BDC0B9",
@@ -214,9 +223,9 @@ SAFE = Theme(
     # The four chosen are the four with the strongest contrast against the
     # near-white panel the dashboard draws its curves on, which rules out the
     # two pale entries; a thin line needs more contrast than a filled swatch.
-    # Worst pair across all three deficiencies: dE 30.8.
-    method_colors={"greedy": "#7E838B", "bnb": "#002E89", "ga": "#B64924",
-                   "sa": "#522E5B", "alns": "#6D0924"},
+    # Worst pair across all three deficiencies: dE 29.5.
+    method_colors={"greedy": "#7E838B", "bnb": "#002E89", "ga": "#B60012",
+                   "sa": "#52245B", "alns": "#6D0924"},
     method_dashes=dict(_METHOD_DASHES), method_markers=dict(_METHOD_MARKERS),
     status_dashes=dict(_STATUS_DASHES),
 )

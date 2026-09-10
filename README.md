@@ -25,6 +25,11 @@ guide to that page and to every other view: the static plot, the animated GIF, t
 Bound search-tree explorer (`drp tree`), and the GA/SA/ALNS convergence dashboard
 (`drp dash`).
 
+Every view writes vector as readily as raster — `-o routes.svg`, `.pdf` or `.eps`, the
+extension decides — and every view is drawn in a **colour-blind-safe theme by default**,
+with a dash pattern, marker or hatch beside every colour so nothing depends on hue alone.
+`--theme chart` brings back the original palette.
+
 ## Contents
 
 - [Quick start](#quick-start) · [The model](#the-model) · [Methods](#methods)
@@ -38,8 +43,8 @@ Bound search-tree explorer (`drp tree`), and the GA/SA/ALNS convergence dashboar
 pip install -e ".[dev]"      # or: pip install -r requirements.txt
 
 python run_experiments.py    # full study  -> results/ + report tables (~20 min)
-python generate_figures.py   # figures     -> results/fig_*.png
-pytest -q -m "not slow"      # the fast test suite (~50 s)
+python generate_figures.py   # figures     -> results/fig_*.pdf and .png
+pytest -q -m "not slow"      # the fast test suite (~2.5 min)
 ```
 
 For a one-minute smoke run instead of the full study:
@@ -158,6 +163,7 @@ drp solve    inst.json --method alns --time 60 --seed 1 -o sol.json
 drp compare  inst.json --methods bnb,ga,sa,alns --seeds 1-10 --time 30
 drp bench    --suite default --time 5 --seeds 1-5
 drp show     sol.json --instance inst.json -o routes.png --animate flight.gif
+drp show     sol.json --instance inst.json -o routes.svg --theme chart
 drp show     sol.json --instance inst.json --web flight.html
 drp tree     inst.json --time 20 -o tree.html
 drp dash     inst.json --methods ga,sa,alns --time 5 -o dash.html
@@ -168,8 +174,9 @@ drp export   sol.json --instance inst.json --format geojson -o routes.geojson
 
 The three HTML views — the flight replay, the B&B tree explorer and the convergence
 dashboard — are each a single self-contained file that opens in a browser with no server.
-**[docs/VISUALISATION.md](docs/VISUALISATION.md)** documents both, including the controls,
-which parameters change the output, and what the separation number does and does not mean.
+**[docs/VISUALISATION.md](docs/VISUALISATION.md)** documents all of them, including the
+controls, which parameters change the output, the two colour themes, and what the
+separation number does and does not mean.
 
 ## File formats
 
@@ -212,11 +219,15 @@ produced it. The report `\input`s generated tables; nothing is typed by hand.
 ## Tests
 
 ```bash
-pytest -q                  # everything (~2.5 min)
-pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
+pytest -q                  # everything, including the browser tests
+pytest -q -m "not slow"    # the fast subset CI runs on every push (~2.5 min)
+pytest -q -m browser       # the three HTML pages, in headless Chromium (~37 s)
 ```
 
-129 tests. The ones that matter most:
+The browser tests need `pip install -e ".[dev,browser]"` and `playwright install
+chromium`; without them they skip with a message rather than passing silently.
+
+**380 tests.** The ones that matter most:
 
 | Test | What it proves |
 |---|---|
@@ -227,6 +238,8 @@ pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 |  `test_cross_validation` | The commodity-flow MILP is a valid lower bound on B&B, and equals it when the battery is slack. |
 | `test_metamorphic` | Reversing a route is free when `β = 0` and generally is not when `β > 0`; scaling coordinates scales energy. |
 | `test_geometry` | Detours match a hand-computed shortest path around an obstacle; blocked legs get longer, not deleted. |
+| `test_viz_theme` | The colour-blind-safe theme is *measured*, not asserted: protanopia, deuteranopia and tritanopia are simulated over every colour either theme names, and the separations are the assertions. |
+| `tests/browser/` | The three HTML pages render, throw nothing, put the payload's own numbers on screen, respond to their controls and do not overflow at 430 px. One test per bug previously found by hand. |
 
 ## Status
 
@@ -234,8 +247,9 @@ See **[PROGRESS.md](PROGRESS.md)** for what is done, what is verified, and what 
 tracked against the project roadmap. In short: **P1 Foundation is complete**, along with
 all six roadmap quick wins and the results store. P2's interactive views are in — the
 flight replay, the B&B search-tree explorer and the metaheuristic convergence dashboard,
-all documented in [docs/VISUALISATION.md](docs/VISUALISATION.md) — while SVG export is not.
-P4 real geography and P5 research extensions are not started.
+all documented in [docs/VISUALISATION.md](docs/VISUALISATION.md) — as are SVG/PDF export
+and the colour-blind-safe theme. P4 real geography and P5 research extensions are not
+started.
 
 ## Building the report
 
@@ -243,3 +257,7 @@ P4 real geography and P5 research extensions are not started.
 python run_experiments.py && python generate_figures.py
 pdflatex -output-directory=report report/report.tex
 ```
+
+`generate_figures.py` writes each figure as PDF *and* PNG. `report.tex` includes them
+without an extension, so pdflatex embeds the vector file and falls back to the raster one
+if it is missing. `--formats svg` gives SVG instead, for slides.

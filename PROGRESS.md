@@ -13,14 +13,16 @@ as an interactive GSAP web page, and then rebuilt again around a real pan/zoom m
 browser-driven design review. **§2.4 is complete**: the B&B tree explorer, the trace
 instrumentation it needed — which also unblocked **Solver Vision** in the flight replay,
 the one feature the brief asked for that had been deliberately left out — and the
-**GA/SA/ALNS convergence dashboard**. Every view is documented in
-[docs/VISUALISATION.md](docs/VISUALISATION.md). P2's remaining piece (SVG export), P4 (real
-geography, benchmark import, service) and most of P5 are not started.
+**GA/SA/ALNS convergence dashboard**. **§2.5 is complete too**: vector export, a
+colour-blind-safe theme measured rather than asserted, and — three pages overdue — a
+headless-browser test harness, with one test for every bug previously found by hand. Every
+view is documented in [docs/VISUALISATION.md](docs/VISUALISATION.md). P4 (real geography,
+benchmark import, service) and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, visualisation guide ✅; SVG export ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; interactive 2D what-if map ✗, 3D ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
 | **P4 Use it** | ✗ Not started |
 | **P5 Push it** | ✗ Not started |
@@ -578,9 +580,205 @@ an event. `tests/test_viz_dash.py` (12 tests) covers the dashboard payload: the 
 limits contain every series, the three numbers that must agree do, and no method may report
 an energy below a proven optimum.
 
-**280 tests.** Still no browser test harness, so none of the JavaScript above is covered by
-CI; the bugs listed were found by driving the pages in Playwright by hand. That remains the
-obvious next hardening step, and it is now overdue for three pages rather than one.
+**280 tests** at this point, and still no browser test harness — none of the JavaScript
+above was covered by CI, and every bug listed was found by driving the pages in Playwright
+by hand. §2.5 below closes that: `tests/browser/` now drives all three pages in headless
+Chromium, with one test named after each of those bugs.
+
+### §2.5 Vector export
+
+`drp show -o routes.svg` works, and so do `.pdf`, `.eps` and `.ps`. There is no
+`--format` flag and there does not need to be one: matplotlib reads the suffix, and the
+single save point only had to stop forcing a raster dpi on a vector target. Two details
+that are not obvious: matplotlib stamps a creation date into SVG and PDF, which makes
+every regeneration a diff, so both are stripped; and `dpi` is now applied to raster
+targets only.
+
+`generate_figures.py` writes every figure **twice**, as PDF and PNG. PDF rather than SVG
+because `report/report.tex` is built with pdflatex, which embeds a PDF directly, while an
+SVG needs `--shell-escape` and an Inkscape on the build machine — a dependency the report
+does not otherwise have. The `\includegraphics` calls lost their `.png` suffix, so LaTeX
+takes the PDF and falls back to the PNG if the vector file is missing. PNG stays because
+plenty of things that are not LaTeX read these files. SVG is one flag away (`--formats
+svg`) and is not written by default because nothing in the repository consumes it.
+
+**TikZ: considered, rejected, written down rather than half-added.** Over PDF it buys
+exactly one thing — figure text set in the document's own font, at the document's own
+size, by the same typesetter. It costs a matplotlib-to-TikZ dependency, a build that can
+now fail inside LaTeX rather than inside Python, and tens of thousands of generated lines
+of `.tex` per data-heavy figure; `fig_comparison` alone draws 60 bars. If the report ever
+does need figure text to match exactly, the cheap half of that is matplotlib's own `pgf`
+backend, which needs no new Python dependency.
+
+### §2.5 What vector output exposed
+
+The roadmap's warning was right, and the specific number is worse than expected. A figure
+drawn 7.5 inches wide and placed at `0.65\textwidth` — 4.09 inches in this report's A4,
+2.5 cm-margin geometry — is shrunk to **0.55** of its size by LaTeX. That takes 11 pt text
+to 6 pt and an 8 pt customer label to **4.4 pt**. Across the seven figures the range was
+4.3–5.8 pt for annotations and 5.4–7.2 pt for tick labels: below any readable floor.
+
+At `dpi=150` this was invisible, and that is the interesting part. A 4 pt label rasterises
+to a grey smudge that reads as "fine print", and nobody looks closer. In vector it is
+crisp, and unmistakably too small. The raster output was not hiding a rendering bug; it
+was hiding a *typographic* decision nobody had made.
+
+Fixed by having each figure declare the fraction of `\textwidth` it is printed at
+(`generate_figures.py`'s `PLACED_AT`, which has to stay in step with the
+`\includegraphics[width=…]` calls) and sizing type and strokes so they land at 9 pt
+headings, 8 pt ticks and 7 pt annotations *on the page*. Line widths and marker sizes scale
+with them — a 1.8 pt route stroke shrunk to 1.0 pt is a hairline, and a hairline is the
+first thing to disappear in print. Annotation *offsets* scale too, which was needed as
+soon as the type grew: bigger labels sat on top of their own markers.
+
+`drp show` passes no `placed_at`, because a figure someone asked for by name is not going
+into that report.
+
+### §2.5 A colour-blind-safe theme, measured
+
+`drp/viz/theme.py` holds both palettes; `--theme`, `DRP_VIZ_THEME` and a `theme=` argument
+on every drawing entry point select one. `safe` is the default; `chart` is the original,
+byte-for-byte, so committed figures regenerate as they were. The pages no longer carry a
+palette of their own: the theme travels in the JSON payload and is written into the CSS
+custom properties at startup, so **one Python constant now colours all five views**.
+
+"Safe" is a claim until something measures it, so `drp/viz/cvd.py` implements the standard
+simulation — Viénot, Brettel & Mollon (1999) for protanopia and deuteranopia, Brettel,
+Viénot & Mollon (1997) for tritanopia — and CIE76 dE\*ab for the distance.
+
+The old palette, simulated. Its worst pair:
+
+| Vision | Closest pair, dE | Which |
+|---|---|---|
+| normal | 26.2 | blue / purple |
+| protanopia | 9.4 | blue / purple |
+| **deuteranopia** | **7.8** | **red / green** |
+| tritanopia | 16.4 | green / purple |
+
+dE 7.8 is "the same colour with a bad print". `safe` scores **29.5** at its worst pair
+across all three deficiencies, every colour clears 3:1 contrast against the page
+background, and the route colours are held clear of the *semantic* ones so no hex means
+two things. `results/fig_theme.pdf` draws both palettes as each kind of vision receives
+them; the dashboard's method colours (purple / red / blue, whose red and blue collapse
+under protanopia) and the replay's delivered-green / breach-red pair are fixed by the same
+switch.
+
+**Two things worth recording about how this was arrived at.** First, hand-picking a
+palette that *looks* safe does not work: a designed set of navy / vermillion / teal /
+purple / amber / sky measured **4.2** under protanopia — worse than the palette it was
+meant to replace. It was replaced by a maximin search over a contrast-filtered grid, and
+the result is machine-derived rather than hand-chosen, which is the honest description.
+Second, published "colour-blind safe" sets are not automatically safe *here*: measured on
+this cream background, Paul Tol's *bright* scheme collapses to dE 1.4 under tritanopia and
+ColorBrewer *Dark2* to 4.5 under deuteranopia. Half of Okabe–Ito fails the contrast floor
+outright, because it was designed for white.
+
+### §2.5 One real finding about the bound ramp
+
+The roadmap guessed the tree explorer's teal → amber → magenta ramp was "already close to
+safe" and asked for it to be checked rather than assumed. Checked, it is **not safe, and
+the failure is worse than a confusable pair**. A sequential ramp has to be monotone in
+perceived distance from its own start, or a high value looks like a low one. Sampled at
+nine points, dE from the first stop:
+
+| Vision | first → last |
+|---|---|
+| normal | 0 → 12 → 27 → 43 → **60** → 56 → 57 → 65 → 76 |
+| protanopia | 0 → 11 → 23 → 35 → **46** → 31 → 17 → 14 → 28 |
+| deuteranopia | 0 → 13 → 28 → 43 → **58** → 45 → 30 → 15 → **9** |
+| tritanopia | 0 → 8 → 19 → 32 → **50** → 46 → 51 → 56 → 59 |
+
+Under deuteranopia the ramp's far end lands dE 9 from its near end while its middle is 58
+away: it folds back, and the highest bounds are drawn in the same colour as the lowest —
+in the one view where the bound is the entire point. It is not monotone for **any** of the
+four, normal vision included; the deficiencies only make an existing flaw severe. `safe`'s
+ramp is navy → violet → amber, monotone under all four, spanning at least dE 63.
+
+### §2.5 Colour is never the only channel
+
+No palette helps a monochromat, and none survives a fax, so every theme carries a dash
+pattern, a marker shape and a bar hatch indexed on the same number as the colour. Routes
+get a dash in the static plot, the GIF and the replay — and the manifest row's spine
+repeats it. Methods get a dash and a marker everywhere, and the dashboard's legend rules
+are drawn as tiny SVGs so they carry the *exact* pattern the curve does. Tree node
+statuses get a ring dash, which matters most there because the fill under the ring is
+itself a ramp colour. Bars get a hatch. Delivered is a filled disc with a tick, pending an
+empty outline, a breach a dashed ring with the numbers beside it.
+
+The second channel is identical in both themes, so switching theme changes only the
+colour and a figure's *shapes* stay comparable.
+
+**What it does not fix, stated plainly.** Six route colours, five semantic ones and a
+sequential ramp cannot all be mutually far apart at 3:1 contrast on a cream page. The
+tightest route-versus-semantic pair in `safe` is dE 11.2 — a dark red route against the
+crimson a breach flashes in. That is a limit, not an oversight, and it is exactly why the
+shapes above exist.
+
+**One behaviour change.** `drp/viz/static.py` and `drp/viz/dashdata.py` held two
+*different* method-colour maps: static's `ga` was blue, dashdata's was purple. The theme
+unifies them, so `--theme chart` draws the dashboard in static's mapping rather than
+dashdata's. No committed figure moves — those all come from `static.py`.
+
+### §2.5 A browser test harness, three pages overdue
+
+`tests/browser/` — **67 tests** across the three pages, in headless Chromium. What they
+assert beyond "it rendered": no page error and no console error, the GSAP guard did not
+fire, panels are populated rather than empty shells, the numbers on the page are the
+numbers in the payload that produced them, play advances and scrubbing seeks and selection
+fills the inspector and the axis and fit toggles change the chart, and nothing overflows
+sideways at 430 px.
+
+And one test per bug found by hand, named after it:
+
+| Test | The bug |
+|---|---|
+| `test_no_uncaught_errors_anywhere_on_load` | The three temporal-dead-zone crashes. They threw *and* left a partly built page, so an element-counting smoke test would have passed |
+| `test_next_improvement_wraps_instead_of_doing_nothing` | "Next improvement" dead on arrival at the end of the search |
+| `test_fit_best_does_not_squash_the_curves_into_a_band` | Measured: `fit best` gives the best-so-far curves 79% of the plot height, `fit all` 2%. Anything under a quarter is the bug back |
+| `test_home_does_not_leave_every_readout_empty` | Every readout `–` at `Home` |
+| `test_edges_and_nodes_are_in_separate_layers` | The tree as a black mass with no nodes in it |
+| `test_seeking_backwards_un_fires_events` | The documented promise nothing enforced |
+| `test_the_rail_is_height_bound_to_the_map_on_desktop` | The map painting over the manifest |
+| `test_the_mini_map_is_not_hidden_behind_a_scrollbar` | The tree explorer's rail bound the wrong way |
+
+**Three harness decisions.** GSAP is served from a local cache rather than the CDN, so a
+network hiccup cannot look like a test failure; fonts are fulfilled *empty* rather than
+aborted, because an aborted request logs a console error and the console-error list is
+supposed to be empty. Pages load with `prefers-reduced-motion: reduce`, so the DOM reaches
+its final state on the first frame and no assertion races an intro tween — with one test
+loading with motion on and asserting it settles in the same place, which is the only thing
+that has ever actually checked that claim. And the tree fixture runs `--no-warm-start` on
+purpose: with a warm start the search often has no improvements, and the button whose
+deadness is being tested would have nothing to do.
+
+**Writing them found one more bug — in the test tooling, not the product.** The first
+tritanopia implementation applied Brettel's separation plane in LMS, where its normal is
+defined in linear RGB. Mid-grey came out `#3A4500`. A neutral grey must be fixed under
+every simulation, `test_simulation_leaves_neutral_greys_alone` says so, and it caught it.
+Every number in this section is from the corrected transform.
+
+**In CI**, they run in their own job on **every push and every pull request**, not only on
+`main`: the whole reason the job exists is that JavaScript regressions are invisible in
+review, and deferring it to `main` means a pull request can break a page and merge green.
+Honest cost — ~40 s to install, ~25 s for Chromium on a cache hit (90 s cold, once per
+Playwright version), ~60–75 s for the tests: **about 2 minutes warm, 3 cold**, in parallel
+with the existing jobs. They are marked `slow` as well as `browser` so `-m "not slow"`,
+the fast subset, is unchanged.
+
+### §2.5 Coverage
+
+`tests/test_viz_theme.py` (33 tests) treats the theme as a claim rather than a constant.
+The simulation is checked first, against behaviour that does not come from this repository
+— neutral greys fixed, red and green collapsing onto one yellow under protanopia and
+deuteranopia and *not* under tritanopia, blue untouched by protanopia and destroyed by
+tritanopia. Then the claims: the safe palette's worst pair, its contrast on the page, that
+no colour carries two meanings, that the ramp is monotone under all four, that the second
+channel exists and is unique per series, and that `chart` is still byte-for-byte the
+original.
+
+`tests/browser/` (67 tests) is described above.
+
+**380 tests**, and for the first time the JavaScript is among them.
 
 ---
 
@@ -762,7 +960,7 @@ Listed so nothing looks finished that isn't.
 | §2.1 | Interactive 2D map, drag-and-drop what-if | Needs a web front end |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
 | §2.4 | — | **Done.** B&B tree explorer, Solver Vision and the GA/SA/ALNS convergence dashboard are all in |
-| §2.5 | SVG/TikZ export, colour-blind-safe theme | Figures are PNG only |
+| §2.5 | TikZ export | Considered and rejected, with the reasoning written down in `generate_figures.py`. `pgf` is the cheaper thing to try first if the report ever needs it. SVG/PDF export and the colour-blind-safe theme are done |
 | §3.x | Scenario builder, geocoding, OSM basemaps, CVRPLIB/Solomon import, QGC export | Nothing started. Haversine distances exist (`geodesic=True`) but no importer uses them |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |
 | §4.3–4.8 | Climb/hover energy, time windows, multi-trip, deconfliction, uncertainty, multi-objective | P5 |

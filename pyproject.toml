@@ -14,6 +14,7 @@ milp = ["pulp>=2.7"]
 schema = ["jsonschema>=4.0"]
 notebook = ["jupyter>=1.0", "pandas>=2.0"]
 dev = ["pytest>=7.0", "pulp>=2.7", "jsonschema>=4.0"]
+browser = ["playwright>=1.40"]
 
 [project.scripts]
 drp = "drp.app.cli:main"
@@ -28,4 +29,7 @@ include = ["drp*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["slow: long-running tests, deselect with -m 'not slow'"]
+markers = [
+    "slow: long-running tests, deselect with -m 'not slow'",
+    "browser: renders a page in headless Chromium (needs playwright); also marked slow",
+]

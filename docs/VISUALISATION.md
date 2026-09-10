@@ -4,17 +4,22 @@ Five views, all reachable from the command line:
 
 | View | Command | Output |
 |---|---|---|
-| Static route plot | `drp show … -o routes.png` | PNG |
+| Static route plot | `drp show … -o routes.svg` | PNG, SVG, PDF or EPS — the extension decides |
 | Animated playback | `drp show … --animate flight.gif` | GIF (or MP4) |
 | Interactive flight replay | `drp show … --web flight.html` | one self-contained HTML file |
 | B&B search-tree explorer | `drp tree … -o tree.html` | one self-contained HTML file |
 | Convergence dashboard | `drp dash … -o dash.html` | one self-contained HTML file |
 
+All five take `--theme`. The default, `safe`, is the colour-blind-safe theme;
+`--theme chart` is the original aeronautical-chart palette. See
+[Themes](#themes) below.
+
 This document is meant to be driven start to finish from an empty directory.
 Every command below was executed before it was written down; the timings and
 file sizes are from those runs, on an ordinary laptop.
 
-For *why* the views look the way they do, see `PROGRESS.md` §2.2 and §2.4.
+For *why* the views look the way they do, see `PROGRESS.md` §2.2, §2.4 and
+§2.5.
 
 ---
 
@@ -81,8 +86,8 @@ wrote flight.html
 |---|---|---|
 | `inst.json` | 3.8 KB | the instance, `drp-instance/v1` |
 | `sol.json` | 5.6 KB | the solution and its feasibility certificate, `drp-solution/v1` |
-| `routes.png` | 112 KB | the static plot |
-| `flight.html` | 107 KB | the interactive replay |
+| `routes.png` | 113 KB | the static plot (`-o routes.svg` gives 40 KB of vector instead) |
+| `flight.html` | 124 KB | the interactive replay |
 
 **`flight.html` opens directly in a browser. There is no server to start.** Open
 it from your file manager, or:
@@ -111,6 +116,8 @@ drp tree inst.json --time 20 -o tree.html
 
 ```bash
 drp show sol.json --instance inst.json -o routes.png
+drp show sol.json --instance inst.json -o routes.svg
+drp show sol.json --instance inst.json -o routes.pdf
 ```
 
 **For:** a figure for a report or a slide. This is the one that goes in the
@@ -118,14 +125,63 @@ paper.
 
 **Needs:** a solution JSON and its instance JSON.
 
-**Cost:** about 1 second, ~110 KB at n=14. Scales with the number of routes, not
-much else.
+**Cost:** about 1 second. Sizes at n=14, same figure:
 
-One matplotlib figure: depot, customers, one colour per drone, routes drawn
-along the path actually flown (bent around any polygonal no-fly zone, not
-straight through it), and the total energy in the title. `-o` is required in the
-sense that it always writes something — it defaults to `routes.png` — so `show`
-never runs without producing the static plot, even when you only wanted `--web`.
+| `-o` | Size | What it is |
+|---|---|---|
+| `routes.png` | 113 KB | 150 dpi raster |
+| `routes.svg` | 40 KB | vector, opens in a browser or Illustrator |
+| `routes.pdf` | 14 KB | vector, what `pdflatex` embeds without conversion |
+| `routes.eps` | 29 KB | vector, for a journal that still asks for it. PostScript has no transparency, so matplotlib warns and renders the no-fly zones' 14% fill opaque — use PDF unless something insists on EPS |
+
+One matplotlib figure: depot, customers, one colour *and one dash pattern and
+one marker shape* per drone, routes drawn along the path actually flown (bent
+around any polygonal no-fly zone, not straight through it), and the total energy
+in the title. `-o` is required in the sense that it always writes something — it
+defaults to `routes.png` — so `show` never runs without producing the static
+plot, even when you only wanted `--web`.
+
+### Vector output
+
+**The extension picks the format.** There is no `--format` flag and there does
+not need to be one: matplotlib reads the suffix, and `save_figure` only has to
+stop forcing a raster dpi on a vector target. `.svg`, `.svgz`, `.pdf`, `.eps`
+and `.ps` are the vector suffixes; anything else is rasterised at 150 dpi.
+
+Two consequences worth knowing:
+
+**Vector output is reproducible.** matplotlib stamps a creation date into SVG
+and PDF by default, which makes every regeneration a diff even when nothing
+changed. Both are stripped, so regenerating a figure from the same inputs gives
+the same bytes.
+
+**Vector output showed that the figures' type was too small.** A figure drawn
+7.5 inches wide and placed at `0.65\textwidth` — 4.09 inches, in this report's
+A4 geometry — is shrunk to 0.55 of its size by LaTeX, taking 11 pt text down to
+6 pt and an 8 pt customer label down to 4.4 pt. At 150 dpi that was invisible: a
+4 pt label rasterises to a grey smudge that reads as "fine print" and nobody
+looks closer. In vector it is crisp and unmistakably too small.
+
+So `plot_routes` and the rest now take `placed_at` — the fraction of
+`\textwidth` the figure will be printed at — and size type and strokes so they
+land at 9 pt headings, 8 pt ticks and 7 pt annotations *on the page*.
+`generate_figures.py` holds one table of those fractions, `PLACED_AT`, which has
+to be kept in step with the `\includegraphics[width=…]` calls in
+`report/report.tex`. `drp show` passes nothing, because a figure you asked for
+by name is not going into that report.
+
+### TikZ
+
+Not done, deliberately, and this is the place to say why rather than half-adding
+it. Over PDF, TikZ buys exactly one thing: figure text set in the document's own
+font, at the document's own size, by the same typesetter. It costs a
+matplotlib-to-TikZ dependency, a build that can now fail inside LaTeX rather
+than inside Python, and tens of thousands of generated lines of `.tex` per
+data-heavy figure — `fig_comparison` alone draws 60 bars. The font argument is
+also weaker than it sounds now that the figures are sized for where they land.
+If the report ever does need figure text to match exactly, the cheap half of
+that is matplotlib's own `pgf` backend, which needs no new Python dependency;
+try it before reaching for TikZ.
 
 ---
 
@@ -174,7 +230,7 @@ that route and not another, and where the fleet came close to itself.
 
 **Needs:** the same two files.
 
-**Cost:** ~2 s, ~107 KB at n=14. Both are nearly flat in instance size; the page
+**Cost:** ~2 s, ~124 KB at n=14. Both are nearly flat in instance size; the page
 is mostly template.
 
 Everything is in the one file: the payload from `drp/viz/webdata.py` is inlined
@@ -426,8 +482,8 @@ tracing on.
 
 | Command | Wall clock | Size |
 |---|---|---|
-| `--methods ga,sa,alns --time 5` | ~16 s | 716 KB |
-| `--methods ga,sa,alns --time 5 --reference 10` | ~26 s | 717 KB |
+| `--methods ga,sa,alns --time 5` | ~17 s | 702 KB |
+| `--methods ga,sa,alns --time 5 --reference 10` | ~26 s | 719 KB |
 | `--methods alns --time 3` | ~4 s | 429 KB |
 
 Wall clock is just the sum of the per-method budgets (plus `--reference` if
@@ -535,7 +591,202 @@ Raise `--max-samples` for a denser curve and a bigger file; lower it for the
 reverse.
 
 ---
+---
 
+## Themes
+
+Every view takes `--theme`. Two ship:
+
+| `--theme` | What it is |
+|---|---|
+| `safe` (default) | Colour-blind safe, and measured for it |
+| `chart` | The original aeronautical-chart palette, unchanged |
+
+`DRP_VIZ_THEME=chart` sets the default for a shell; `--theme` beats it. From
+Python, every drawing entry point takes `theme=` — a name or a
+`drp.viz.theme.Theme` — so two themes can be rendered side by side in one
+process without touching global state.
+
+```bash
+drp show sol.json --instance inst.json -o routes.svg --theme chart
+drp tree inst.json --time 20 -o tree.html --theme chart
+drp dash inst.json --time 5 -o dash.html --theme chart
+DRP_VIZ_THEME=chart drp show sol.json --instance inst.json -o routes.png
+```
+
+### Why the old palette had to go, with the numbers
+
+"Colour-blind safe" is a claim until something measures it, so `drp/viz/cvd.py`
+implements the standard simulation — Viénot, Brettel & Mollon (1999) for
+protanopia and deuteranopia, Brettel, Viénot & Mollon (1997) for tritanopia —
+and CIE76 dE\*ab for the distance. `tests/test_viz_theme.py` runs both over
+every colour either theme names.
+
+`chart`'s six route colours are `#2E75B6 #C0504D #4E8542 #8064A2 #F79646
+#4BACC6`. The closest pair in that set, simulated:
+
+| Vision | Closest pair, dE | Which pair |
+|---|---|---|
+| normal | 26.2 | blue / purple |
+| protanopia | 9.4 | blue / purple |
+| **deuteranopia** | **7.8** | **red / green** |
+| tritanopia | 16.4 | green / purple |
+
+A dE of 7.8 is "the same colour with a bad print". `safe` scores **29.5** at its
+worst pair across all three deficiencies. `results/fig_theme.png` draws both
+palettes as each kind of colour vision receives them, and is regenerated by
+`generate_figures.py` alongside everything else.
+
+The same problem was in the pages: the flight replay used green for delivered
+and red for a separation breach, and the dashboard's method colours were
+purple / red / blue, whose red and blue collapse onto each other under
+protanopia.
+
+### The finding nobody expected: the bound ramp
+
+The tree explorer's lower-bound ramp — teal → amber → magenta — was expected to
+be close to safe already. It is not, and the failure is worse than a confusable
+pair. A *sequential* ramp has to be monotone in perceived distance from its own
+start, or a high value looks like a low one. Sampled at nine points and
+simulated:
+
+| Vision | dE from the start, first → last |
+|---|---|
+| normal | 0 → 12 → 27 → 43 → **60** → 56 → 57 → 65 → 76 |
+| protanopia | 0 → 11 → 23 → 35 → **46** → 31 → 17 → 14 → 28 |
+| deuteranopia | 0 → 13 → 28 → 43 → **58** → 45 → 30 → 15 → **9** |
+| tritanopia | 0 → 8 → 19 → 32 → **50** → 46 → 51 → 56 → 59 |
+
+Read the deuteranopia row: the ramp's *far end* lands dE 9 from its near end
+while its middle is 58 away. It folds back on itself, so the highest bounds are
+drawn in the same colour as the lowest — in the one view where the bound is the
+whole point. And it is not monotone for **any** of the four, normal vision
+included; the deficiencies only make an existing flaw severe.
+
+`safe`'s ramp is navy → violet → amber:
+
+| Vision | dE from the start, first → last |
+|---|---|
+| normal | 0 → 5 → 11 → 17 → 24 → 36 → 54 → 74 → 93 |
+| protanopia | 0 → 4 → 9 → 14 → 18 → 35 → 54 → 74 → 93 |
+| deuteranopia | 0 → 6 → 11 → 18 → 25 → 45 → 66 → 87 → 107 |
+| tritanopia | 0 → 4 → 12 → 20 → 29 → 38 → 47 → 56 → 63 |
+
+Monotone under all four, spanning at least dE 63.
+
+### Colour is never the only channel
+
+No palette helps a monochromat, and none survives a fax. So every theme also
+carries a **dash pattern**, a **marker shape** and a **bar hatch**, indexed on
+the same number as the colour:
+
+- **Routes** get a dash pattern in the static plot, the GIF and the flight
+  replay — and the manifest row's spine repeats it, so a row and its route are
+  matched by shape as well as by hue.
+- **Methods** get a dash pattern and a marker in every figure and on the
+  dashboard, whose legend rules are drawn as tiny SVGs so they carry the exact
+  pattern the curve does.
+- **Node statuses** in the tree explorer get a ring dash pattern, which matters
+  more there than anywhere else because the fill under the ring is itself a
+  colour from the bound ramp.
+- **Bars** get a hatch, which is what makes `fig_comparison` readable in
+  greyscale.
+- **Delivered** is a filled disc with a tick, **pending** an empty outline,
+  **breached** a dashed ring with the numbers beside it. Three shapes, not three
+  colours.
+
+The second channel is identical in both themes, so switching theme changes only
+the colour and a figure's *shapes* stay comparable between the two.
+
+### What the theme does not fix
+
+Six route colours, five semantic ones and a sequential ramp cannot all be
+mutually far apart at 3:1 contrast on a cream page. The tightest route-versus-
+semantic pair in `safe` is dE 11.2 — a dark red route against the crimson a
+breach flashes in. That is a stated limit, not an oversight, and it is the
+reason the shapes above exist: the two are drawn as different *kinds* of mark, a
+stroke against a dashed ring with a labelled banner.
+
+------
+
+## Testing the pages
+
+Until roadmap §2.5, none of the JavaScript on the three HTML pages was covered
+by anything. `tests/test_viz_web.py`, `test_viz_tree.py` and `test_viz_dash.py`
+pin the *payloads* — the geometry, the derived dual-bound series, the axis
+limits — and every one of them passes against a page that throws on load and
+renders nothing. Every bug §2.2 and §2.4 record was found by driving the pages
+in a browser by hand.
+
+`tests/browser/` is that, automated. 67 tests across the three pages:
+
+```bash
+pip install -e ".[dev,browser]"
+playwright install chromium
+
+pytest -q -m browser        # ~37 s
+```
+
+They skip, with a message, if Playwright or Chromium is missing — so a checkout
+without them is not silently uncovered, it says so.
+
+**They are marked `slow` as well as `browser`**, which keeps `pytest -q -m "not
+slow"` — the fast subset — at the same ~2.5 minutes it was. `pytest -q` runs
+everything.
+
+### What they assert
+
+Beyond "it rendered": that no page error or console error was raised, that the
+GSAP guard did not fire, that the panels are populated rather than empty shells,
+that the numbers on the page are the numbers in the payload that produced it,
+that play advances and scrubbing seeks and selection fills the inspector, and
+that nothing overflows sideways at 430 px.
+
+And, specifically, one test per bug found by hand, named after it:
+
+| Test | The bug it would have caught |
+|---|---|
+| `test_no_uncaught_errors_anywhere_on_load` | The three temporal-dead-zone crashes. They threw *and* left a partly built page, so counting elements was not enough — only watching `pageerror` catches them |
+| `test_next_improvement_wraps_instead_of_doing_nothing` | "Next improvement" was dead on arrival, because the page opens at the end of the search where there is no next improvement |
+| `test_fit_best_does_not_squash_the_curves_into_a_band` | The y-range contained SA's working solution, so the three curves the chart exists to compare occupied ~2% of the plot height instead of ~79% |
+| `test_home_does_not_leave_every_readout_empty` | Every readout said `–` at `Home`, because the x-domain began at 0 and the first sample lands a few milliseconds in |
+| `test_edges_and_nodes_are_in_separate_layers` | The tree rendered as a black mass, because each node's edge lived in that node's group and painted over every earlier circle |
+| `test_seeking_backwards_un_fires_events` | The documented promise that seeking back un-fires events, which nothing enforced |
+| `test_the_rail_is_height_bound_to_the_map_on_desktop` | The map painted over the manifest, because `aspect-ratio` fed the panel's height back into its width |
+| `test_the_mini_map_is_not_hidden_behind_a_scrollbar` | The tree explorer's rail was height-bound the wrong way, hiding the mini map |
+
+### Three things the harness does, and why
+
+**GSAP is served from a local cache, not the CDN.** The pages fetch it from
+`cdnjs.cloudflare.com`, which makes a network hiccup look like a test failure.
+The first run downloads it to `tests/browser/.cache/` (gitignored); after that
+it is served from disk through a Playwright route. Fonts are fulfilled empty —
+they are not under test, and waiting on them is the slowest part of a load.
+
+**Pages load with `prefers-reduced-motion: reduce`.** All three honour it by
+resolving every transition instantly, so the DOM reaches its final state on the
+first frame and no assertion races an intro tween. One test loads with motion on
+instead and asserts it settles in the same place, which is the only thing that
+actually checks the reduced-motion claim this document makes.
+
+**The fixtures are tiny and rendered once per session.** The solvers are the
+slow part, not the browser. The tree fixture runs `--no-warm-start` on purpose:
+without it the search often has no improvements, and then the button whose
+deadness is being tested has nothing to do.
+
+### In CI
+
+`.github/workflows/ci.yml` runs them in their own job, on **every push and every
+pull request** rather than only on `main`. The whole reason the job exists is
+that JavaScript regressions are invisible in review; deferring it to `main`
+means a pull request can break a page and merge green.
+
+Honest cost: about 40 s to install the package, 25 s for Chromium on a cache hit
+(90 s cold, once per Playwright version) and 60–75 s for the tests — so roughly
+**2 minutes warm, 3 cold**. It runs in parallel with the existing jobs, so it
+adds wall-clock time only if it becomes the longest of them, which it does not.
+
+---
 ## Parameters that change the output
 
 ### `drp generate`
@@ -574,7 +825,8 @@ looks identical.
 
 | Flag | Default | Applies to |
 |---|---|---|
-| `-o` | `routes.png` | the static plot (always written) |
+| `-o` | `routes.png` | the static plot (always written); `.svg`/`.pdf`/`.eps` give vector |
+| `--theme` | `safe` | the plot, the GIF and the page |
 | `--instance` | required | all |
 | `--animate PATH` | off | GIF/MP4; format from the extension |
 | `--web PATH` | off | the flight replay |
@@ -596,6 +848,7 @@ looks identical.
 | `--title` | instance name | page title |
 | `--solution PATH` | off | also write the solution B&B found |
 | `--no-warm-start` | off | start with no incumbent |
+| `--theme` | `safe` | colour theme; see [Themes](#themes) |
 
 ### `drp dash`
 
@@ -608,6 +861,7 @@ looks identical.
 | `--max-samples` | `3000` | samples kept per method. Bounds the **recording**, never the search |
 | `--reference SECONDS` | `0` (off) | also run B&B this long and draw its optimum, or failing that its dual bound, as a floor |
 | `--title` | instance name | page title |
+| `--theme` | `safe` | colour theme; see [Themes](#themes) |
 
 `dash` supports `ga`, `sa` and `alns` only. `greedy` is a construction heuristic
 with nothing to converge, and `bnb` has its own view (`drp tree`); ask for either
