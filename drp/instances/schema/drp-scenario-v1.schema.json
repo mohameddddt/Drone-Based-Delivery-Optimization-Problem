@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem/schema/drp-scenario-v1.json",
+  "title": "drp-scenario/v1",
+  "description": "The recipe an instance is built from: where the stops come from, where the depot is, what the fleet can do, and which airspace is restricted. `drp build` turns one into a drp-instance/v1 file.",
+  "type": "object",
+  "required": ["source"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "drp-scenario/v1" },
+    "name": { "type": "string" },
+    "seed": {
+      "type": "integer",
+      "description": "Seeds both the sampling of stops and their demands, so a scenario always rebuilds the same instance."
+    },
+    "geodesic": {
+      "type": "boolean",
+      "description": "Coordinates are [lat, lon] and distances are haversine km. Defaults to true for dataset-backed sources, false for hand-placed points."
+    },
+    "notes": { "type": "string" },
+    "source": {
+      "description": "Where the delivery stops come from: the shipped dataset, an explicit list, or the synthetic generator.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dataset": {
+          "type": "string",
+          "description": "Path to a delivery-point CSV (District, Road_Slot, Latitude, Longitude). Defaults to the one shipped in data/source/."
+        },
+        "district": { "type": "string" },
+        "road_slot": { "type": "string" },
+        "count": {
+          "type": "integer", "minimum": 1,
+          "description": "How many stops to sample from the selected area."
+        },
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["coord"],
+            "properties": {
+              "coord": {
+                "type": "array", "minItems": 2, "maxItems": 2,
+                "items": { "type": "number" }
+              },
+              "demand": { "type": "number", "minimum": 0 },
+              "district": { "type": "string" }
+            }
+          }
+        },
+        "synthetic": {
+          "type": "object",
+          "description": "Fall through to the original synthetic generator.",
+          "required": ["n"],
+          "properties": {
+            "n": { "type": "integer", "minimum": 1 },
+            "drones": { "type": "integer", "minimum": 1 },
+            "area": { "type": "number", "exclusiveMinimum": 0 },
+            "zones": { "type": "integer", "minimum": 0 },
+            "zone_radius": { "type": "number", "exclusiveMinimum": 0 },
+            "nofly": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "depot": {
+      "description": "A coordinate, a place name the dataset knows, or the centroid of the chosen stops (the default).",
+      "oneOf": [
+        {
+          "type": "object", "required": ["coord"],
+          "properties": {
+            "coord": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "items": { "type": "number" }
+            }
+          }
+        },
+        {
+          "type": "object", "required": ["place"],
+          "properties": { "place": { "type": "string" } }
+        },
+        {
+          "type": "object", "required": ["centroid"],
+          "properties": { "centroid": { "type": "boolean" } }
+        },
+        {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": { "type": "number" }
+        }
+      ]
+    },
+    "fleet": {
+      "type": "object",
+      "properties": {
+        "n_drones": { "type": "integer", "minimum": 1 },
+        "payload": { "type": "number", "exclusiveMinimum": 0 },
+        "battery": {
+          "description": "A number is an explicit budget; null is unbounded; {\"factor\": f} calibrates it from the instance (the default, f = 0.9).",
+          "oneOf": [
+            { "type": "number", "exclusiveMinimum": 0 },
+            { "type": "null" },
+            {
+              "type": "object",
+              "properties": {
+                "factor": { "type": "number", "exclusiveMinimum": 0 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "energy": {
+      "type": "object",
+      "description": "e(d, w) = d * (alpha + beta * w)",
+      "properties": {
+        "alpha": { "type": "number", "exclusiveMinimum": 0 },
+        "beta": { "type": "number", "minimum": 0 }
+      }
+    },
+    "demand": {
+      "type": "object",
+      "description": "Range the per-stop demands are drawn from, when the stops do not carry their own.",
+      "properties": {
+        "min": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 }
+      }
+    },
+    "nofly": {
+      "type": "object",
+      "properties": {
+        "circles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["centre"],
+            "properties": {
+              "centre": {
+                "oneOf": [
+                  {
+                    "type": "array", "minItems": 2, "maxItems": 2,
+                    "items": { "type": "number" }
+                  },
+                  {
+                    "type": "object", "required": ["place"],
+                    "properties": { "place": { "type": "string" } }
+                  }
+                ]
+              },
+              "radius_km": { "type": "number", "exclusiveMinimum": 0 },
+              "radius": { "type": "number", "exclusiveMinimum": 0 },
+              "sides": { "type": "integer", "minimum": 3 }
+            }
+          }
+        },
+        "polygons": {
+          "type": "array",
+          "items": {
+            "type": "array", "minItems": 3,
+            "items": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "items": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

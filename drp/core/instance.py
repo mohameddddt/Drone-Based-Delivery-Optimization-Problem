@@ -50,6 +50,12 @@ class DRPInstance:
     geodesic
         If True, coordinates are ``(lat, lon)`` and distances are haversine
         kilometres rather than Euclidean units.
+    round_distances
+        If True, every distance is rounded to the nearest integer. This exists
+        for imported CVRPLIB/TSPLIB instances, whose published optima are
+        defined on the rounded ``EUC_2D`` metric -- without it a comparison
+        against a best-known value is comparing two different problems
+        (roadmap §3.3).
     """
 
     name: str
@@ -64,6 +70,7 @@ class DRPInstance:
     nofly_edges: Set[Tuple[int, int]] = field(default_factory=set)
     nofly_zones: List[Sequence[Tuple[float, float]]] = field(default_factory=list)
     geodesic: bool = False
+    round_distances: bool = False
     seed: Optional[int] = None
 
     _dist: Optional[np.ndarray] = field(default=None, repr=False, compare=False)
@@ -89,6 +96,9 @@ class DRPInstance:
 
                 base = obstacle_distance_matrix(self.coords, self.nofly_zones,
                                                 geodesic=self.geodesic)
+            if self.round_distances:
+                # Rounded after any detour: the detour is part of the distance.
+                base = np.rint(base)
             self._dist = base
         return self._dist
 

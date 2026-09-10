@@ -117,7 +117,8 @@ def test_csv_export_has_one_row_per_leg():
     assert len(csv) - 1 == expected
 
 
-@pytest.mark.parametrize("name", ["drp-instance-v1", "drp-solution-v1"])
+@pytest.mark.parametrize("name", ["drp-instance-v1", "drp-solution-v1",
+                                 "drp-scenario-v1"])
 def test_schema_files_are_valid_json(name):
     data = json.loads((SCHEMA_DIR / f"{name}.schema.json").read_text(encoding="utf-8"))
     assert data["$schema"].startswith("https://json-schema.org/")

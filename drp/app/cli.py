@@ -1,11 +1,14 @@
 """Command-line interface (roadmap §1.3).
 
     drp generate --n 40 --drones 8 --zones 3 --seed 7 -o inst.json
+    drp build    scenario.json -o inst.json
+    drp import   A-n32-k5.vrp --format cvrplib -o a32.json
     drp solve    inst.json --method alns --time 60 --seed 1 -o sol.json
     drp compare  inst.json --methods bnb,ga,sa,alns --seeds 1-10 --time 30
     drp show     sol.json --instance inst.json -o routes.png
     drp export   sol.json --instance inst.json --format geojson -o routes.geojson
-    drp bench    --suite default --time 5 --seeds 1-5
+    drp export   sol.json --instance inst.json --format qgc -o missions/
+    drp bench    --suite geo --time 5 --seeds 1-5
 """
 from __future__ import annotations
 
@@ -19,10 +22,13 @@ from drp.core import is_feasible, total_energy
 from drp.eval.metrics import instance_rows, method_summary
 from drp.eval.runner import METHODS, run_study, solve_one
 from drp.eval.store import ResultStore
-from drp.instances import (default_benchmark_suite, generate_instance,
-                           generate_zone_instance, load_instance,
-                           load_solution, save_instance, save_solution,
-                           solution_to_csv, solution_to_geojson,
+from drp.instances import (Anchor, build_scenario_file,
+                           default_benchmark_suite, generate_instance,
+                           generate_zone_instance, geo_benchmark_suite,
+                           load_instance, load_solution, mission_summary,
+                           read_benchmark, save_instance, save_scenario,
+                           save_solution, scenario_template, solution_to_csv,
+                           solution_to_geojson, write_qgc_plans,
                            zone_benchmark_suite)
 
 
@@ -48,6 +54,56 @@ def cmd_generate(args) -> int:
     print(f"wrote {out}  (n={inst.n_customers}, K={inst.n_drones}, "
           f"payload={inst.payload:.1f}, battery={inst.battery:.1f}, "
           f"zones={len(inst.nofly_zones)}, nofly_edges={len(inst.nofly_edges)})")
+    return 0
+
+
+def cmd_build(args) -> int:
+    """Build an instance from a scenario recipe (roadmap §3.1)."""
+    if args.example:
+        out = Path(args.output or "scenario.json")
+        save_scenario(scenario_template(), out)
+        print(f"wrote {out}  (an example scenario -- edit it, "
+              f"then `drp build {out}`)")
+        return 0
+    if not args.scenario:
+        print("give a scenario file, or --example to write one", file=sys.stderr)
+        return 2
+
+    inst = build_scenario_file(args.scenario, dataset=args.dataset)
+    out = Path(args.output or "instance.json")
+    save_instance(inst, out)
+    print(f"wrote {out}  (n={inst.n_customers}, K={inst.n_drones}, "
+          f"payload={inst.payload:.2f}, battery={inst.battery:.2f}, "
+          f"zones={len(inst.nofly_zones)}, "
+          f"{'geodesic -- distances in km' if inst.geodesic else 'planar'})")
+    return 0
+
+
+def cmd_import(args) -> int:
+    """Import a CVRPLIB or Solomon benchmark file (roadmap §3.3)."""
+    kwargs = {}
+    if args.drones is not None:
+        kwargs["n_drones"] = args.drones
+    if args.beta is not None:
+        kwargs["beta"] = args.beta
+    if args.customers is not None:
+        if args.format == "cvrplib":
+            print("--customers only applies to Solomon files", file=sys.stderr)
+            return 2
+        kwargs["n_customers"] = args.customers
+
+    imported = read_benchmark(args.source, fmt=args.format, **kwargs)
+    print(imported.describe())
+    if imported.best_known is not None:
+        print(f"reference : {imported.best_known:g} "
+              f"({imported.best_known_kind}) -- comparable only at beta=0 on "
+              "the file's own metric")
+    if imported.dropped:
+        print("dropped   : " + "; ".join(imported.dropped))
+
+    out = Path(args.output)
+    save_instance(imported.instance, out)
+    print(f"wrote {out}")
     return 0
 
 
@@ -112,8 +168,10 @@ def cmd_compare(args) -> int:
 
 
 def cmd_bench(args) -> int:
-    suite = (zone_benchmark_suite() if args.suite == "zones"
-             else default_benchmark_suite())
+    suites = {"default": default_benchmark_suite,
+              "zones": zone_benchmark_suite,
+              "geo": geo_benchmark_suite}
+    suite = suites[args.suite]()
     methods = [m.strip() for m in args.methods.split(",") if m.strip()]
     seeds = parse_seeds(args.seeds)
 
@@ -166,10 +224,38 @@ def cmd_export(args) -> int:
                        encoding="utf-8")
     elif args.format == "csv":
         out.write_text(solution_to_csv(inst, sol), encoding="utf-8")
+    elif args.format == "qgc":
+        written = write_qgc_plans(inst, sol, out,
+                                  anchor=parse_anchor(args.anchor),
+                                  altitude=args.altitude)
+        for p in written:
+            print(f"wrote {p}")
+        print("\nthe .plan format carries none of these -- check by hand:")
+        for row in mission_summary(inst, sol):
+            battery = ("unbounded" if row["battery_limit"] is None
+                       else f"{row['battery_limit']:.1f}")
+            print(f"  drone {row['drone'] + 1}: {row['stops']} stops, "
+                  f"payload {row['payload_at_departure']:.2f}/"
+                  f"{row['payload_limit']:.2f}, energy {row['energy']:.2f} "
+                  f"(battery {battery}, {row['units']})")
+        return 0
     else:
         raise SystemExit(f"unknown format {args.format!r}")
     print(f"wrote {out}")
     return 0
+
+
+def parse_anchor(spec: Optional[str]) -> Optional[Anchor]:
+    """``lat,lon[,metres_per_unit]`` -- where a planar instance sits on Earth."""
+    if not spec:
+        return None
+    try:
+        parts = [float(x) for x in spec.split(",")]
+    except ValueError:
+        raise SystemExit("--anchor wants lat,lon[,metres_per_unit]") from None
+    if len(parts) not in (2, 3):
+        raise SystemExit("--anchor wants lat,lon[,metres_per_unit]")
+    return Anchor(parts[0], parts[1], parts[2] if len(parts) == 3 else 100.0)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +276,29 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("-o", "--output", default="instance.json")
     g.set_defaults(func=cmd_generate)
 
+    bd = sub.add_parser("build", help="build an instance from a scenario file")
+    bd.add_argument("scenario", nargs="?", help="a drp-scenario/v1 JSON file")
+    bd.add_argument("--dataset",
+                    help="override the delivery-point CSV the scenario samples")
+    bd.add_argument("--example", action="store_true",
+                    help="write an example scenario to --output and exit")
+    bd.add_argument("-o", "--output")
+    bd.set_defaults(func=cmd_build)
+
+    im = sub.add_parser("import", help="import a CVRPLIB or Solomon benchmark")
+    im.add_argument("source", help="a .vrp or Solomon text file")
+    im.add_argument("--format", default="auto",
+                    choices=["auto", "cvrplib", "solomon"])
+    im.add_argument("--drones", type=int,
+                    help="fleet size (default: the file's declared vehicles)")
+    im.add_argument("--beta", type=float,
+                    help="load coefficient; the default 0 keeps the imported "
+                         "problem comparable to its published optimum")
+    im.add_argument("--customers", type=int,
+                    help="Solomon only: keep the first N customers")
+    im.add_argument("-o", "--output", required=True)
+    im.set_defaults(func=cmd_import)
+
     s = sub.add_parser("solve", help="solve one instance with one method")
     s.add_argument("instance")
     s.add_argument("--method", default="alns", choices=list(METHODS))
@@ -207,7 +316,10 @@ def build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=cmd_compare)
 
     b = sub.add_parser("bench", help="run a whole benchmark suite")
-    b.add_argument("--suite", default="default", choices=["default", "zones"])
+    b.add_argument("--suite", default="default",
+                   choices=["default", "zones", "geo"],
+                   help="synthetic, synthetic with no-fly zones, or the real "
+                        "Pontianak delivery geography")
     b.add_argument("--methods", default="greedy,bnb,ga,sa,alns")
     b.add_argument("--seeds", default="1-5")
     b.add_argument("--time", type=float, default=5.0,
@@ -230,8 +342,15 @@ def build_parser() -> argparse.ArgumentParser:
     e = sub.add_parser("export", help="export a solution for other tools")
     e.add_argument("solution")
     e.add_argument("--instance", required=True)
-    e.add_argument("--format", default="geojson", choices=["geojson", "csv"])
-    e.add_argument("-o", "--output", required=True)
+    e.add_argument("--format", default="geojson",
+                   choices=["geojson", "csv", "qgc"])
+    e.add_argument("--anchor", metavar="LAT,LON[,M_PER_UNIT]",
+                   help="qgc only: where a planar instance's origin sits on "
+                        "Earth (geodesic instances need no anchor)")
+    e.add_argument("--altitude", type=float, default=60.0,
+                   help="qgc only: cruise altitude in metres (default 60)")
+    e.add_argument("-o", "--output", required=True,
+                   help="qgc: a directory, or a .plan file for a single drone")
     e.set_defaults(func=cmd_export)
 
     return p

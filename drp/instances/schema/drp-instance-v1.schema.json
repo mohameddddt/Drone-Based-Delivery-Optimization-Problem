@@ -13,6 +13,10 @@
       "type": "boolean",
       "description": "If true, coordinates are [lat, lon] and distances are haversine km."
     },
+    "round_distances": {
+      "type": "boolean",
+      "description": "If true, distances are rounded to the nearest integer (the CVRPLIB EUC_2D convention)."
+    },
     "fleet": {
       "type": "object",
       "required": ["n_drones", "payload"],

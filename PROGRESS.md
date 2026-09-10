@@ -10,16 +10,18 @@ that — turning a 37-cell notebook into software other people can use.
 **P1 Foundation is complete, and all six roadmap quick wins are done.** §5.1's stronger
 B&B bound and §6's significance testing are now in too. §2.2's playback has been rebuilt
 as an interactive GSAP web page, and then rebuilt again around a real pan/zoom map after a
-browser-driven design review. P2's remaining pieces (B&B tree explorer, SA/GA
-dashboards, SVG export), P4 (real geography, benchmark import, service) and most of P5
-are not started.
+browser-driven design review. **§3's data layer has now landed**: a scenario builder,
+instances built from the supplied Pontianak coordinates, CVRPLIB/Solomon import and
+QGroundControl mission export. P2's remaining pieces (B&B tree explorer, SA/GA dashboards,
+SVG export), §3's networked half (address geocoding, OSM basemaps), the §7–8 service and
+most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
 | **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page); B&B tree explorer, SA/GA dashboards, SVG export ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
-| **P4 Use it** | ✗ Not started |
+| **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅; geocoding, OSM basemaps, REST service ✗ |
 | **P5 Push it** | ✗ Not started |
 
 ### The six quick wins
@@ -59,15 +61,17 @@ stays current as the project's single narrative entry point.
 `drp/instances/schema/`. Instances carry depot, customers, demands, fleet spec, energy
 parameters and no-fly geometry (edges *and* polygons). Solutions carry routes, per-leg
 energy and onboard weight, and a **feasibility certificate** so a third party can verify a
-claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
+claimed result without re-running a solver. GeoJSON and per-leg CSV export too, and
+(since §3) QGroundControl `.plan` missions. A third format, `drp-scenario/v1`, describes
+the *recipe* an instance is built from rather than the instance itself.
 
 ### §1.3 Command-line interface
 
-`drp generate | solve | compare | bench | show | export`, all exercised in CI.
+`drp generate | build | import | solve | compare | bench | show | export`, all exercised in CI.
 
 ### §1.4 Tests
 
-**165 tests.** The ones the roadmap called for specifically:
+**216 tests.** The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -80,6 +84,10 @@ claimed result without re-running a solver. GeoJSON and per-leg CSV export too.
 | Cross-validation | `test_cross_validation.py` | F2 ≤ B&B optimum always; equal when the battery is slack. Now an assertion, not a printout. |
 | Feasibility fuzzing | `test_feasibility_fuzz.py` | 2,400 random solutions judged identically by `is_feasible` and an independently written reference checker. |
 | **Significance machinery** | `test_stats.py` | Nemenyi CD reproduces Demšar's published table exactly for `k = 2..10`; a synthetic consistently-better method is detected as significant, a method compared against itself is not; bootstrap CI brackets a known mean. |
+| **Import fidelity** | `test_benchmark_import.py` | An imported CVRPLIB file is the same problem the literature solved: depot at node 0 wherever the file put it, rounded `EUC_2D` reproduced, energy at `β=0` equal to distance, and B&B proving the value the file declares. |
+| **Geographic instances** | `test_geodata.py` | Reproducible from the untouched CSV and independent of row order; distances are haversine kilometres; every instance in the suite has a feasible solution. |
+| **Scenario recipes** | `test_scenario.py` | A named place resolves to that district's centroid, declared demands survive, a mistyped key is refused, and a synthetic scenario reproduces `generate_instance` exactly. |
+| **Mission export** | `test_qgc.py` | The waypoints are the solved route in the solved order; a planar instance cannot be exported without an anchor; the anchor's projection measures the right number of metres. |
 
 Bound validity deserves its billing: a bound that overestimates prunes the branch holding
 the optimum, and the search then reports a **wrong answer labelled "proven optimal"**.
@@ -325,6 +333,191 @@ everywhere via the real `drone` field.
 
 ---
 
+## P4 — Use it: the data layer (§3)
+
+Everything above this line was measured on instances the project generated for itself, and
+every solution it produced left as a PNG or a JSON file only this repository understands.
+§3 is the section that connects it to data other people already have. Four of its pieces
+landed on this branch; two did not, and the reason is stated below rather than implied.
+
+### §3.1 Scenario builder
+
+An instance is a *result* — coordinates, demands, a calibrated battery. A **scenario** is
+the recipe that produced it, and that is the thing anyone actually wants to edit:
+
+```json
+{
+  "schema": "drp-scenario/v1",
+  "seed": 7,
+  "source": {"district": "Pontianak South", "road_slot": "IV", "count": 20},
+  "depot": {"place": "Pontianak South"},
+  "fleet": {"n_drones": 5},
+  "nofly": {"circles": [{"centre": {"place": "Pontianak City"}, "radius_km": 0.8}]}
+}
+```
+
+`drp build scenario.json -o inst.json` turns that into an ordinary `drp-instance/v1` file,
+so **nothing downstream learns about scenarios** — the solvers, the store, the figures and
+the web playback all see what they always saw. `drp build --example` writes the file above
+to start from. Three source kinds are supported: sample the real dataset, list points
+outright (a hand-built what-if), or fall through to the original synthetic generator, which
+`test_scenario.py` pins against `generate_instance` coordinate-for-coordinate.
+
+Two deliberate hard edges:
+
+- **A mistyped key is an error, not a default.** `"flete": {"n_drones": 3}` silently
+  ignored would mean a study running with a different fleet than its own recipe claims.
+  Unknown keys are rejected and named.
+- **A zone drawn over a node is refused.** Centring a restricted circle on the same place
+  as the depot — an easy thing to write — used to produce an instance whose depot row was
+  entirely infinite, so every solver correctly reported "no feasible solution" and nobody
+  could tell why. It now fails immediately, naming the node.
+
+### §3.2 Real geography
+
+`data/source/Last_Mile_Delivery_Coordinates.csv` — 4,360 real delivery points across the
+six districts of Pontianak — had been sitting in the repository unused by anything the
+solvers ran on. `drp/instances/geodata.py` wires it in: coordinates are `(lat, lon)`,
+instances are built with `geodesic=True`, and distances are **haversine kilometres**.
+Nothing downstream needed changing; only the units of the numbers did.
+
+- **Selection is deterministic and the source file is never touched.** Points are sorted
+  into a canonical order *before* sampling, so the instance does not depend on the order
+  rows happen to arrive in — `test_geodata.py` checks that by shuffling the pool and
+  demanding the same twelve points back.
+- **The battery is calibrated, not guessed.** The nearest-neighbour rule the synthetic
+  generator uses was extracted as `calibrate_battery` and is now shared verbatim by both
+  families, so a geographic instance is neither infeasible nor trivially loose. Every
+  instance in the suite is asserted to have a feasible construction.
+- `geo_benchmark_suite()` is twelve instances whose `(n, K)` sizes **mirror
+  `BENCHMARK_SPECS` exactly**, drawn from all six districts, so a geographic result can be
+  read directly next to its synthetic counterpart.
+
+#### The geographic pilot run
+
+`drp bench --suite geo --seeds 1-3 --time 3 --bnb-time 10`, stored in
+`results/geo_runs.db` as group `run_20260910_180619`. **This is a pilot, not a study**: 3
+seeds and 3 s per metaheuristic seed against the committed run's 5 and 5, and a 10 s B&B
+budget against 20 s. Energies are in kilometre-scaled units and are not comparable to the
+synthetic table's numbers — only the shape of the result is.
+
+| Instance | n | K | Greedy | B&B | GA | SA | ALNS | Proved? | Unproved interval |
+|---|---|---|---|---|---|---|---|---|---|
+| P1_n5_k2 | 5 | 2 | **6.10** | **6.10** | **6.10** | **6.10** | **6.10** | ✓ | 0.0% |
+| P2_n6_k2 | 6 | 2 | 30.10 | **25.00** | **25.00** | **25.00** | **25.00** | ✓ | 0.0% |
+| P3_n7_k2 | 7 | 3 | 20.90 | **17.50** | **17.50** | **17.50** | **17.50** | ✓ | 0.0% |
+| P4_n8_k3 | 8 | 3 | 11.70 | **11.20** | **11.20** | **11.20** | **11.20** | ✓ | 0.0% |
+| P5_n9_k3 | 9 | 3 | 20.40 | **18.60** | **18.60** | **18.60** | **18.60** | ✓ | 0.0% |
+| P6_n10_k3 | 10 | 3 | 21.10 | **18.00** | **18.00** | **18.00** | **18.00** | ✓ | 0.0% |
+| P7_n12_k4 | 12 | 4 | 23.00 | 23.00 | 23.00 | 23.00 | 23.00 | | 51.7% |
+| P8_n15_k4 | 15 | 4 | 54.50 | 48.40 | 47.00 | 52.40 | **46.70** | | 50.8% |
+| P9_n18_k5 | 18 | 5 | 29.00 | 29.00 | 26.80 | 29.00 | **25.70** | | 61.4% |
+| P10_n20_k5 | 20 | 5 | 42.40 | 42.40 | **39.60** | 42.40 | 39.80 | | 67.3% |
+| P11_n25_k6 | 25 | 6 | 33.60 | 33.60 | 31.20 | 33.40 | **29.70** | | 60.1% |
+| P12_n30_k6 | 30 | 6 | 58.20 | 58.20 | 50.60 | 53.60 | **49.20** | | 72.6% |
+
+| Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
+|---|---|---|---|---|
+| **ALNS** | **25.9** | 9.01 | 6/6 | 0.000% |
+| Genetic Algorithm | 26.2 | 8.97 | 6/6 | 0.000% |
+| Simulated Annealing | 27.5 | 9.00 | 6/6 | 0.000% |
+| Branch & Bound | 27.6 | 5.61 | 6/6 | 0.000% |
+| Greedy construction | 29.2 | 0.00 | 1/6 | 11.865% |
+
+What the real geography changes, and what it does not:
+
+- **The exact/heuristic crossover is in the same place.** B&B proves `n = 5…10` and times
+  out from `n = 12`, on half the time budget the synthetic run gave it. Clustering did not
+  move the ceiling; the missing subtour elimination in the bound is still what sets it.
+- **The method ordering is unchanged** — ALNS, then GA, then SA, then timed-out B&B, then
+  greedy — and no metaheuristic ever returns below a proven optimum.
+- **Simulated annealing is the one that suffers.** On `P7`, `P9` and `P10` it returns
+  *exactly* its warm-start value, having never improved; on the uniform synthetic suite it
+  always improved. Clustered stops make a swap-and-reverse neighbourhood much likelier to
+  land on an infeasible or plainly worse solution, and SA has no repair operator to
+  recover. This is the clearest thing the real geography has told us that a uniform square
+  could not — with the caveat that the pilot's 3 s budget is shorter than the committed
+  run's 5 s.
+- **The GA/ALNS pair separates here, and it is worth being careful about.** Paired Wilcoxon
+  over the twelve instances gives ALNS better than GA at `p = 0.016`, where the synthetic
+  suite could not distinguish them at all (`p ≥ 0.14`). But the Friedman post-hoc, which
+  corrects for comparing five methods at once, does **not**: average ranks 1.88 (ALNS) and
+  2.62 (GA) differ by 0.74, well inside the Nemenyi critical difference of 1.761. The
+  honest reading is that the clustered instances *discriminate better* than uniform ones —
+  a reason to expect the literature-instance import to pay off — not that ALNS is now
+  proven better than the GA.
+- `P7_n12_k4` is a curiosity: every method, including greedy, returns 23.00 and B&B cannot
+  prove it (51.7% interval). Either the instance's calibrated battery leaves very few
+  feasible shapes, or all four searches share the same basin. Not diagnosed.
+
+### §3.3 CVRPLIB and Solomon import
+
+`drp import` reads TSPLIB-style `.vrp` files and Solomon VRPTW files. What makes this worth
+having is not the parsing but the **faithfulness**, and the module is explicit about it:
+
+| | Choice | Why |
+|---|---|---|
+| Objective | `beta = 0` by default | With no load term, route energy *is* route distance, so the imported CVRP is the published problem and its optimum is a meaningful target. `--beta 0.3` gives a drone instance on benchmark geography, comparable to nothing published — and the import says so in its `dropped` list. |
+| Metric | rounded `EUC_2D` | CVRPLIB optima are defined on integer-rounded distances. `round_distances` is a new instance field (and schema property) rather than a fudge at read time, so it survives the JSON round-trip. |
+| Range | unbounded battery | A battery cap is not part of CVRP. |
+| Solomon | time windows **dropped** | This model has no time dimension (§4.4). They are parsed and handed back on the `ImportedInstance` so nothing is lost, but a Solomon import is a *relaxation*: its optimum is a lower bound on the VRPTW optimum, not a target to match. |
+| Solomon fleet | capacity bound + 1, capped at declared | The files declare 25 vehicles for 25 customers. Taken literally that is one drone per customer and the partitioning decision becomes vacuous. |
+
+`tests/data/toy-n8-k3.vrp` is a hand-written fixture, and the test that matters asserts
+that importing it and running B&B lands exactly on the optimum recorded in its `COMMENT` —
+so getting the depot, the demands, the capacity or the metric wrong shows up as a moved
+number rather than as a plausible one. **That value was proved by this repository's own
+B&B and the fixture's comment says so**; it is not a published figure.
+
+**What this does not yet deliver.** No third-party benchmark files are committed — they are
+other people's data — so CI exercises the parsers on fixtures, not on Augerat or Uchoa.
+The statistical-power argument in the closing section (a larger instance set is what would
+separate GA, SA and ALNS) is now *unblocked*, not *done*: it needs someone to download a
+set and run it.
+
+### §3.5 QGroundControl mission export
+
+`drp export --format qgc` writes one `.plan` per flying drone: take off at the depot, each
+stop in the solved order with a hold for the drop, return, land. Polygonal no-fly zones
+become **exclusion geofence polygons**, which is the closest the format comes to the
+constraint the solver respected.
+
+- A geodesic instance exports as it stands. A **planar instance refuses to export without
+  an `--anchor lat,lon[,metres_per_unit]`**, because its coordinates mean nothing on Earth
+  and inventing a location is worse than failing.
+- The format carries no payload, no battery and no energy model, so the command prints a
+  `mission_summary` of exactly those numbers beside the files it wrote — the flight plan
+  and the optimisation result can then be reconciled by hand.
+- **Not verified in QGroundControl itself.** There is no ground station on this machine.
+  The files match the documented `.plan` schema and parse as JSON, and the tests check the
+  command sequence, the waypoint order and the anchor's metre-scale projection against
+  haversine — but nobody has loaded one into QGC.
+
+### Deliberately not done: geocoding and OSM basemaps
+
+Both need network access, which this environment does not have, and a stub that pretends
+otherwise would be worse than an absence. What *is* there is a **gazetteer** — district
+names resolved to their own centroids, computed from the dataset — which is what a scenario
+file needs to say "put the depot in Pontianak South". The code labels it as such rather
+than calling it geocoding.
+
+### A geometry bug this surfaced
+
+Building a scenario test — depot at a corner, a restricted circle in the middle, customers
+at the other corners — produced a distance matrix in which the diagonal leg **flew straight
+through the zone**. `segment_blocked` tested for a *proper* crossing with each polygon edge
+and then sampled the whole segment's midpoint. A chord that enters and leaves through two
+**vertices** crosses no edge properly, and if its midpoint happens to lie beyond the far
+vertex the zone was judged clear. A symmetric layout produces exactly that alignment.
+
+It is now cut at every point where it meets the boundary, and each piece classified by its
+own midpoint. **No committed number moves**: the default suite has no polygons at all, and
+re-computing all six zone instances' distance matrices under both the old and the new test
+gives identical matrices to floating-point equality — this needs a degenerate alignment
+that random coordinates essentially never produce, which is why it survived §4.1's tests.
+
+---
+
 ## The committed run
 
 12 instances, 5 seeds per metaheuristic, 20 s for B&B and 5 s per metaheuristic seed.
@@ -445,7 +638,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **165 tests pass** — 148 fast (~35 s), 17 slow (~45 s).
+- **216 tests pass** — 199 fast (~42 s), 17 slow (~50 s).
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -459,6 +652,15 @@ Everything below was executed, not assumed.
   targets are produced by the pipeline.
 - The Nemenyi critical difference reproduces Demšar (2006)'s published table exactly for
   `k = 2..10` methods, not just approximately.
+- Importing `tests/data/toy-n8-k3.vrp` and running B&B proves exactly the optimum the file
+  declares, on the rounded `EUC_2D` metric the declaration refers to.
+- Every one of the twelve real-geography instances has a feasible construction, and the
+  same seed rebuilds the same suite from the untouched source CSV.
+- A no-fly circle built in `(lat, lon)` degrees measures the requested radius in
+  kilometres in every direction, checked at a latitude where `cos(lat)` is far from 1.
+- The visibility distances of all six zone instances are unchanged, to floating-point
+  equality, by this branch's `segment_blocked` fix.
+- The CLI runs build → solve → export --format qgc, and import → solve, end to end.
 
 ### Bugs found and fixed while building this
 
@@ -477,6 +679,13 @@ Everything below was executed, not assumed.
   that every method gets. Since B&B usually *is* the reference on small instances, a 66.6%
   unproved interval was being reported as 0.004%. Renamed to `bnb_dual_gap_pct`, with
   `tests/test_metrics.py` written specifically to keep the two apart.
+- **A no-fly zone a drone could fly straight through** (described above under §3) — a
+  segment entering and leaving a polygon through two *vertices* passed the blocking test.
+  Found by a symmetric scenario-builder test, not by the random-geometry ones.
+- **A side suite would have silently redefined the report.** `run_experiments.py
+  --tables-only` rebuilds the report's tables from the store's *latest* group, so running
+  the new geographic suite into `results/runs.db` would have made the report describe it.
+  Side suites now keep their own store and leave the report's tables alone.
 - **Unescaped `&`** in the generated LaTeX summary table (`Branch & Bound`) — LaTeX reads it
   as a column separator; the table would not have compiled.
 - `ndarray.ptp()` was removed in NumPy 2.0 — broke the animation on this machine's NumPy.
@@ -502,7 +711,8 @@ Listed so nothing looks finished that isn't.
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
 | §2.4 | B&B tree explorer, SA/GA dashboards | The data is in the store; the views are not built |
 | §2.5 | SVG/TikZ export, colour-blind-safe theme | Figures are PNG only |
-| §3.x | Scenario builder, geocoding, OSM basemaps, CVRPLIB/Solomon import, QGC export | Nothing started. Haversine distances exist (`geodesic=True`) but no importer uses them |
+| §3.1–3.3, §3.5 | Scenario builder, real geography, CVRPLIB/Solomon import, QGC export | ✅ Landed — see "P4 — Use it" above. No third-party benchmark files are committed, so the literature comparison is unblocked rather than done |
+| §3.4 | Address geocoding, OSM basemaps | Not done: both need network access. The district gazetteer is dataset-derived and labelled as such |
 | §4.2 | Wind and asymmetric costs | Would break the 2-opt symmetry assumption — a real change, not a parameter |
 | §4.3–4.8 | Climb/hover energy, time windows, multi-trip, deconfliction, uncertainty, multi-objective | P5 |
 | §5.1 | Held–Karp / LP / column-generation bounds | Assignment-relaxation bound landed and moved the ceiling from `n ≈ 9` to `n ≈ 10`; a subtour-eliminating bound (Held–Karp 1-tree, LP relaxation) is the remaining, bigger step |
@@ -517,11 +727,13 @@ Listed so nothing looks finished that isn't.
    passes a structural check and every include target exists, but run
    `pdflatex -output-directory=report report/report.tex` before relying on it.
 
-2. **The study still uses synthetic instances, not the supplied dataset.**
-   `data/source/Last_Mile_Delivery_Coordinates.csv` is restored and
-   `notebooks/data_instance_builder.ipynb` runs against it, but
-   `default_benchmark_suite()` samples coordinates uniformly at random. Wiring the real
-   geography into the benchmark is roadmap §3.2 and is not done.
+2. **The *report's* study still uses synthetic instances.** The real geography is now
+   wired in — `geo_benchmark_suite()` builds twelve instances from
+   `data/source/Last_Mile_Delivery_Coordinates.csv`, and the pilot run above solves them —
+   but `default_benchmark_suite()` is still what `run_experiments.py` runs by default and
+   what every table in `report/report.tex` describes. Promoting the geographic suite to the
+   study of record means re-running the full protocol (5 seeds, 20 s B&B) and re-writing
+   the report's numbers, which is a deliberate decision, not a side effect of this branch.
 
 ---
 
@@ -535,7 +747,8 @@ Still unanswered, and they change what to build next:
    does.
 3. **Solvers** — open (CBC/HiGHS/OR-Tools) or an academic Gurobi licence for real
    branch-and-cut?
-4. **Geography** — synthetic only, or commit to one real city as the flagship?
+4. **Geography** — synthetic only, or commit to one real city as the flagship? Pontianak
+   is now *available* as a suite; whether it becomes the study of record is still open.
 5. **Fidelity** — how physically accurate should the energy model get before extra realism
    stops changing the optimisation conclusions?
 
@@ -547,6 +760,9 @@ instances**, so the confident "ALNS wins" language elsewhere in this document is
 not a proven claim. Closing that needs a larger instance set for statistical power, which
 is §3.3's benchmark-library import (CVRPLIB/Solomon) doing double duty — it would answer
 question 1 (compete on literature instances) *and* give §6 the sample size it's missing,
-probably more efficiently than generating more synthetic instances would. A Held–Karp
+probably more efficiently than generating more synthetic instances would. **That importer
+now exists**, so the remaining step is no longer engineering: it is downloading a set
+(Augerat A/B, Uchoa X, Solomon) and running the protocol over it, at which point §6's
+machinery sharpens automatically. A Held–Karp
 1-tree or the flow formulation's LP relaxation remains the path to a bigger jump past
 `n ≈ 10` whenever the exact side becomes the priority again.
