@@ -1,7 +1,9 @@
 """Instance generation, benchmark suites, real geography, and the on-disk formats."""
-from drp.instances.benchmarks import (ImportedInstance, read_benchmark,
+from drp.instances.benchmarks import (ImportedInstance, PublishedSolution,
+                                      benchmark_directory, read_benchmark,
                                       read_benchmark_suite, read_cvrplib,
-                                      read_solomon)
+                                      read_cvrplib_solution, read_solomon,
+                                      solution_path_for)
 from drp.instances.generator import (BENCHMARK_SPECS, calibrate_battery,
                                      default_benchmark_suite,
                                      generate_instance, generate_zone_instance,
@@ -38,7 +40,8 @@ __all__ = [
     "build_scenario", "build_scenario_file",
     # benchmark import (§3.3)
     "ImportedInstance", "read_cvrplib", "read_solomon", "read_benchmark",
-    "read_benchmark_suite",
+    "read_benchmark_suite", "benchmark_directory", "PublishedSolution",
+    "read_cvrplib_solution", "solution_path_for",
     # formats
     "INSTANCE_SCHEMA", "SOLUTION_SCHEMA",
     "instance_to_dict", "instance_from_dict", "save_instance", "load_instance",

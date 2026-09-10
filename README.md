@@ -10,8 +10,8 @@ Ships with two mathematical formulations, an NP-hardness proof, an exact Branch 
 with an anytime dual bound, three metaheuristics, visibility-graph routing around polygonal
 no-fly zones, a reproducible benchmark generator, instances built from a real last-mile
 coordinate dataset, CVRPLIB/Solomon import, QGroundControl mission export, an experiment
-harness, and 216 tests including brute-force verification of the pieces everything else
-rests on.
+harness, and 367 tests -- including brute-force verification of the pieces everything
+else rests on, and 74 published CVRPLIB optima reproduced exactly.
 
 ```bash
 pip install -e ".[dev]"
@@ -133,7 +133,7 @@ drp/
   eval/        runner · store (SQLite) · metrics · stats (significance)
   viz/         static · animate · webdata · webplayback
   app/         cli
-tests/         216 tests, incl. brute-force verification
+tests/         367 tests, incl. brute-force and published-optimum verification
 report/        report.tex + generated tables
 results/       runs.db, CSVs, figures
 data/source/   the supplied last-mile coordinate dataset
@@ -169,9 +169,13 @@ drones, a restricted circle downtown" — and samples the supplied
 coordinates and haversine distances in kilometres. `drp bench --suite geo` runs the twelve
 geographic instances, sized to mirror the synthetic suite.
 
-`drp import` reads CVRPLIB `.vrp` and Solomon VRPTW files. At the default `beta = 0`, with
+`drp import` reads CVRPLIB `.vrp` and Solomon VRPTW files, and `run_experiments.py --suite
+cvrplib` runs the whole protocol over a directory of them. At the default `beta = 0`, with
 the rounded `EUC_2D` metric and an unbounded battery, an imported CVRP instance **is** the
-classic problem, so its objective is directly comparable to the published optimum. Solomon
+classic problem, so its objective is directly comparable to the published optimum — which
+is how all 74 Augerat optima come to be reproduced exactly, and how ALNS's advantage over
+the GA went from "a trend on 12 instances" to `p = 2 × 10⁻⁸` on 74 (see
+[PROGRESS.md](PROGRESS.md)). Solomon
 files import with their time windows **dropped** (this model has no time dimension), which
 every import states explicitly rather than leaving implied.
 
@@ -228,7 +232,7 @@ pytest -q                  # everything (~2.5 min)
 pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 ```
 
-216 tests. The ones that matter most:
+367 tests with the benchmark data present, 217 without it. The ones that matter most:
 
 | Test | What it proves |
 |---|---|
@@ -242,6 +246,7 @@ pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 | `test_benchmark_import` | An imported CVRPLIB file is *the same problem* the literature solved: depot at node 0 wherever the file put it, the rounded `EUC_2D` metric reproduced, and B&B proving the value the file declares. |
 | `test_geodata` | Geographic instances are reproducible from the untouched source CSV, their distances really are haversine kilometres, and every one of them has a feasible solution. |
 | `test_qgc` | An exported mission is the solved route in the solved order, and a planar instance cannot be exported without an anchor saying where on Earth it is. |
+| `test_cvrplib_published` | **The only non-self-referential check in the project.** 74 CVRPLIB optimal solutions, produced by other people with other code, all reproduce exactly under `total_energy` and all pass `is_feasible`. |
 
 ## Status
 

@@ -370,3 +370,77 @@ def read_benchmark_suite(paths: Sequence[PathLike],
                          **kwargs) -> List[ImportedInstance]:
     """Read several benchmark files, keeping the order given."""
     return [read_benchmark(p, fmt=fmt, **kwargs) for p in paths]
+
+
+def benchmark_directory(root: PathLike,
+                        pattern: str = "*.vrp",
+                        fmt: str = "auto",
+                        limit: Optional[int] = None,
+                        **kwargs) -> List[ImportedInstance]:
+    """Every benchmark file under `root`, ordered by size then name.
+
+    Sorting by `n` matters: it makes a suite's results read as a size sweep,
+    and it puts the instances a solver can still prove first.
+    """
+    files = sorted(Path(root).rglob(pattern))
+    if not files:
+        raise FileNotFoundError(f"no {pattern} files under {root}")
+    suite = read_benchmark_suite(files, fmt=fmt, **kwargs)
+    suite.sort(key=lambda imp: (imp.instance.n_customers, imp.instance.name))
+    return suite[:limit] if limit else suite
+
+
+# ---------------------------------------------------------------------------
+# Published solutions
+# ---------------------------------------------------------------------------
+@dataclass
+class PublishedSolution:
+    """A ``.sol`` file: somebody else's answer, and what they scored it."""
+
+    routes: List[List[int]]
+    cost: Optional[float]
+    source: str
+
+    def solution(self) -> "Solution":
+        from drp.core.solution import Solution
+
+        return Solution([list(r) for r in self.routes])
+
+
+_ROUTE_RE = re.compile(r"^\s*Route\s*#\s*\d+\s*:(.*)$", re.IGNORECASE)
+
+
+def read_cvrplib_solution(path: PathLike) -> PublishedSolution:
+    """Read a CVRPLIB ``.sol`` file.
+
+    The customer numbering lines up with this package's own: a ``.sol`` lists
+    customers 1..n in the file's node order excluding the depot, which is
+    exactly how `read_cvrplib` indexes them. So a published solution can be
+    dropped straight into `Solution` and scored -- which is what
+    `tests/test_cvrplib_published.py` does to check this project's objective
+    against 74 answers it had no hand in producing.
+    """
+    p = Path(path)
+    routes: List[List[int]] = []
+    cost: Optional[float] = None
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = _ROUTE_RE.match(line)
+        if m:
+            routes.append([int(x) for x in m.group(1).split()])
+            continue
+        if line.strip().lower().startswith("cost"):
+            parts = line.split()
+            if parts:
+                try:
+                    cost = float(parts[-1])
+                except ValueError:
+                    pass
+    if not routes:
+        raise ValueError(f"{p.name}: no 'Route #k:' lines")
+    return PublishedSolution(routes=routes, cost=cost, source=str(p))
+
+
+def solution_path_for(instance_file: PathLike) -> Optional[Path]:
+    """The ``.sol`` sitting beside a ``.vrp``, if the set shipped one."""
+    p = Path(instance_file).with_suffix(".sol")
+    return p if p.exists() else None

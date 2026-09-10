@@ -231,6 +231,42 @@ def report(recs, summary, methods) -> None:
               f"{'--' if gap is None else f'{gap:8.3f}'}")
 
 
+def imported_suite(args) -> List[Any]:
+    """Load a literature benchmark set from disk (roadmap §3.3).
+
+    The instances keep the importer's faithful defaults -- ``beta = 0``, an
+    unbounded battery, and for CVRPLIB the rounded ``EUC_2D`` metric -- so what
+    runs here is the published problem, and its objective is comparable to the
+    published optimum.
+    """
+    from drp.instances import benchmark_directory
+
+    default_dir = "data/CVRPLIB" if args.suite == "cvrplib" else "data/Solomon"
+    root = Path(args.benchmark_dir or default_dir)
+    if not root.exists():
+        raise SystemExit(
+            f"{root} does not exist. Benchmark files are not committed (they "
+            "are third-party data); fetch them from "
+            "http://vrp.galgos.inf.puc-rio.br (CVRPLIB) or "
+            "https://www.sintef.no/projectweb/top/vrptw/solomon-benchmark/ "
+            "and point --benchmark-dir at them.")
+
+    pattern = "*.vrp" if args.suite == "cvrplib" else "*.txt"
+    kwargs: Dict[str, Any] = {}
+    if args.suite == "solomon" and args.customers:
+        kwargs["n_customers"] = args.customers
+
+    imported = benchmark_directory(root, pattern=pattern, fmt=args.suite,
+                                   limit=args.limit, **kwargs)
+    dropped = sorted({note for imp in imported for note in imp.dropped})
+    print(f"{len(imported)} instances from {root} "
+          f"(n = {imported[0].instance.n_customers}"
+          f"..{imported[-1].instance.n_customers})")
+    if dropped:
+        print("dropped from every instance: " + "; ".join(dropped))
+    return [imp.instance for imp in imported]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -239,9 +275,17 @@ def main() -> int:
     ap.add_argument("--meta-time", type=float, default=5.0)
     ap.add_argument("--methods", default="greedy,bnb,ga,sa,alns")
     ap.add_argument("--suite", default="default",
-                    choices=["default", "zones", "geo"],
+                    choices=["default", "zones", "geo", "cvrplib", "solomon"],
                     help="synthetic (the study of record), synthetic with "
-                         "no-fly zones, or the real Pontianak geography")
+                         "no-fly zones, the real Pontianak geography, or an "
+                         "imported literature set (roadmap §3.3)")
+    ap.add_argument("--benchmark-dir",
+                    help="where the .vrp / Solomon files live "
+                         "(default: data/CVRPLIB or data/Solomon)")
+    ap.add_argument("--customers", type=int,
+                    help="solomon only: keep the first N customers of each file")
+    ap.add_argument("--limit", type=int,
+                    help="use only the first N instances, smallest first")
     ap.add_argument("--store", default=None,
                     help="results database (default: results/runs.db for the "
                          "default suite, results/<suite>_runs.db otherwise)")
@@ -281,10 +325,13 @@ def main() -> int:
     if args.quick:
         args.seeds, args.bnb_time, args.meta_time = 1, 3.0, 1.0
 
-    suites = {"default": default_benchmark_suite,
-              "zones": zone_benchmark_suite,
-              "geo": geo_benchmark_suite}
-    suite = suites[args.suite]()
+    if args.suite in ("cvrplib", "solomon"):
+        suite = imported_suite(args)
+    else:
+        suites = {"default": default_benchmark_suite,
+                  "zones": zone_benchmark_suite,
+                  "geo": geo_benchmark_suite}
+        suite = suites[args.suite]()
     seeds = list(range(1, args.seeds + 1))
 
     print(f"{len(suite)} instances | methods={methods} | seeds={seeds}")

@@ -12,9 +12,11 @@ B&B bound and §6's significance testing are now in too. §2.2's playback has be
 as an interactive GSAP web page, and then rebuilt again around a real pan/zoom map after a
 browser-driven design review. **§3's data layer has now landed**: a scenario builder,
 instances built from the supplied Pontianak coordinates, CVRPLIB/Solomon import and
-QGroundControl mission export. P2's remaining pieces (B&B tree explorer, SA/GA dashboards,
-SVG export), §3's networked half (address geocoding, OSM basemaps), the §7–8 service and
-most of P5 are not started.
+QGroundControl mission export. The importer has since been run in anger on the Augerat
+A/B/P sets, which gave the project its first external correctness evidence and settled §6's
+open question about GA versus ALNS. P2's remaining pieces (B&B tree explorer, SA/GA
+dashboards, SVG export), §3's networked half (address geocoding, OSM basemaps), the §7–8
+service and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
@@ -71,7 +73,7 @@ the *recipe* an instance is built from rather than the instance itself.
 
 ### §1.4 Tests
 
-**216 tests.** The ones the roadmap called for specifically:
+**367 tests** with the benchmark data present, 217 without it (the CVRPLIB checks skip when the third-party files are absent, which is what CI sees). The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -87,6 +89,7 @@ the *recipe* an instance is built from rather than the instance itself.
 | **Import fidelity** | `test_benchmark_import.py` | An imported CVRPLIB file is the same problem the literature solved: depot at node 0 wherever the file put it, rounded `EUC_2D` reproduced, energy at `β=0` equal to distance, and B&B proving the value the file declares. |
 | **Geographic instances** | `test_geodata.py` | Reproducible from the untouched CSV and independent of row order; distances are haversine kilometres; every instance in the suite has a feasible solution. |
 | **Scenario recipes** | `test_scenario.py` | A named place resolves to that district's centroid, declared demands survive, a mistyped key is refused, and a synthetic scenario reproduces `generate_instance` exactly. |
+| **External validation** | `test_cvrplib_published.py` | 74 CVRPLIB optimal solutions, produced by other people with other code, all reproduce **exactly** under `total_energy` and all pass `is_feasible`. The only check in the project that is not self-referential. |
 | **Mission export** | `test_qgc.py` | The waypoints are the solved route in the solved order; a planar instance cannot be exported without an anchor; the anchor's projection measures the right number of metres. |
 
 Bound validity deserves its billing: a bound that overestimates prunes the branch holding
@@ -510,11 +513,111 @@ so getting the depot, the demands, the capacity or the metric wrong shows up as 
 number rather than as a plausible one. **That value was proved by this repository's own
 B&B and the fixture's comment says so**; it is not a published figure.
 
-**What this does not yet deliver.** No third-party benchmark files are committed — they are
-other people's data — so CI exercises the parsers on fixtures, not on Augerat or Uchoa.
-The statistical-power argument in the closing section (a larger instance set is what would
-separate GA, SA and ALNS) is now *unblocked*, not *done*: it needs someone to download a
-set and run it.
+#### The Augerat sets, imported and run
+
+The Augerat **A, B and P** sets (74 instances, `n = 15…100`) now sit under
+`data/CVRPLIB/`, fetched from <http://vrp.galgos.inf.puc-rio.br>. They are not
+committed — third-party data, `.gitignore`d — so everything below reproduces by
+downloading them to that path and running one command.
+
+**First: this project's objective, checked against 74 answers it had no hand in.**
+
+Every correctness test written before this branch was self-referential. B&B is checked
+against a brute force *in the same package*, written from the same understanding of the
+problem; a shared misunderstanding — of the rounding convention, of which node is the
+depot, of how capacity is counted — passes all of them. CVRPLIB ships a `.sol` beside each
+`.vrp`: an optimal solution and its cost, produced by other people with other code.
+
+Scoring their routes with `total_energy` and comparing to their number:
+
+```
+74 instances checked
+objective mismatches:      0
+infeasible by our checker: 0
+```
+
+Exact agreement on all 74, and our feasibility checker accepts every one. That is the
+strongest correctness evidence in the project, and it is the only *external* evidence in
+it. `tests/test_cvrplib_published.py` keeps it (150 cases; it skips when the files are
+absent, which is why the suite reports 367 tests here and 217 in CI).
+
+**A gap this exposed immediately.** Seven of the 74 load the fleet to 93–99% of its total
+capacity. The synthetic generator always leaves 41% slack (`payload_factor = 1.7`), so no
+instance in this project had ever been tight. On all seven, **both** construction
+heuristics returned nothing — they grow routes geographically and check capacity as they
+go, but at 99% utilisation the question is not "which customer is nearest", it is "does
+any assignment into K routes fit at all", which is bin packing. The consequences ran
+downstream: greedy reported infeasible, and **SA and ALNS produced no solution at all**,
+because their fallback of 200 random restarts is hopeless when a random permutation Splits
+feasibly roughly once in a thousand tries. Only the GA coped, and badly (`A-n45-k6`: 2552
+against an optimum of 944).
+
+`drp/meta/construct.py::packing_construction` fixes it: best-fit-decreasing, then
+first-fit, then seeded random restarts, then nearest-neighbour ordering within each route.
+`P-n55-k15` packs 1,042 units into 15 drones of capacity 70 — eight units of slack across
+the whole fleet — and needs 2,059 shuffles to find a packing at all. It is wired as a
+**fallback**, used only when both geographic constructions return `None`, so it cannot
+change greedy's energy on any instance that already worked; the notebook parity test
+confirms that. All 74 now construct feasibly.
+
+**The study.** `python run_experiments.py --suite cvrplib --seeds 3 --meta-time 5
+--bnb-time 5`, group `run_20260910_194239` in `results/cvrplib_runs.db`, 1,110 runs,
+3,830 s. At `beta = 0` on the rounded `EUC_2D` metric this *is* the published problem, so
+the gaps below are gaps to genuine optima, not to our own best-so-far.
+
+| Method | Avg. rank | Mean gap to optimum | Median gap | Optima hit |
+|---|---|---|---|---|
+| **ALNS** | **1.64** | 9.21% | **3.28%** | **5/74** |
+| Genetic Algorithm | 2.89 | 15.58% | 5.35% | 1/74 |
+| Simulated Annealing | 3.27 | 16.17% | 5.89% | 1/74 |
+| Branch & Bound | 3.55 | 17.44% | 6.12% | 0/74 |
+| Greedy construction | 3.66 | 17.76% | 6.45% | 0/74 |
+
+**No method ever returned below a published optimum, on any of the 74.** That is the
+project's central invariant, and until now it had only ever been checked against optima
+this repository proved itself.
+
+Read the gaps honestly: 5 s per seed of Python against instances the literature attacks
+with tuned C++ for minutes. A 3.3% median for ALNS is a respectable showing for a
+teaching-scale codebase and nowhere near state of the art, and B&B proves nothing at all
+here — the smallest instance is `n = 15`, already past the `n ≈ 10` ceiling.
+
+**And the answer to §6's open question.** On twelve synthetic instances, GA, SA and ALNS
+were statistically indistinguishable (`p ≥ 0.14`), and this document has said for two
+sections that closing that needed a larger instance set rather than more machinery. With
+74 paired instances:
+
+| Comparison | 12 synthetic | 74 literature |
+|---|---|---|
+| ALNS vs GA | p = 0.14 | **p = 2.0 × 10⁻⁸** |
+| ALNS vs SA | p = 0.20 | **p = 3.2 × 10⁻¹⁰** |
+| GA vs SA | p = 0.14 | **p = 0.018** |
+
+Friedman: χ² = 150.35, p = 1.7 × 10⁻³¹, Nemenyi CD = 0.709. This time the
+multiplicity-correcting post-hoc agrees with the pairwise tests: ALNS's average rank of
+1.64 beats the GA's 2.89 by 1.25, comfortably outside the critical difference — where on
+the geographic suite the same comparison sat inside it. **ALNS is better than the GA on
+this problem, and that is now a measured claim rather than a trend.** The machinery was
+right and the sample was too small, exactly as §6 predicted.
+
+**The tightness finding, again, and it is the same finding.** ALNS's gap tracks fleet
+utilisation almost monotonically:
+
+| | Instances | Median ALNS gap |
+|---|---|---|
+| Utilisation ≤ 90% | 20 | 2.4% |
+| Utilisation > 90% | 54 | 5.1% |
+| The eight worst (all ≥ 97% full) | 8 | 19–101% |
+
+On `B-n57-k7` (99.6% full) ALNS returns 2321 — *exactly* its warm start, never having
+improved, which is precisely what SA did on the clustered Pontianak instances. The cause is
+shared: every method here moves customers **between** routes, through Split or through
+ALNS's repair, and when the fleet is 99% full almost every such move is infeasible, so the
+search freezes. The synthetic suite could not show this because it never generates a tight
+instance. The standard remedy in the CVRP literature — allow temporary infeasibility with a
+penalty, or use ejection chains — is not implemented here, and is now the best-evidenced
+next step for §5.2.
+
 
 ### §3.5 QGroundControl mission export
 
@@ -666,6 +769,12 @@ scoped to close, and closing it fully needs a larger instance set (more statisti
 among the three metaheuristics), not more testing machinery — the machinery is now in
 place and will sharpen automatically whenever the benchmark suite grows.
 
+**Superseded, and by exactly the route predicted.** §3.3's importer supplied 74 Augerat
+instances, and on those the same machinery separates all three: ALNS beats the GA at
+`p = 2.0 × 10⁻⁸` and the Nemenyi post-hoc agrees. The paragraph above stands as written
+for the twelve synthetic instances — it was a statement about the sample, not about the
+methods — and "The Augerat sets, imported and run" above has the result that closes it.
+
 `tests/test_stats.py` checks the machinery itself: the Nemenyi CD reproduces Demšar's
 published table exactly (not just approximately) for `k = 2..10`, a synthetic
 consistently-better method is correctly detected as significant while a method compared
@@ -679,7 +788,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **216 tests pass** — 199 fast (~42 s), 17 slow (~50 s).
+- **367 tests pass** — 350 fast (~40 s), 17 slow (~50 s). Without the third-party benchmark files that is 217; the CVRPLIB checks skip rather than fail.
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -702,6 +811,8 @@ Everything below was executed, not assumed.
 - The visibility distances of all six zone instances are unchanged, to floating-point
   equality, by this branch's `segment_blocked` fix.
 - The CLI runs build → solve → export --format qgc, and import → solve, end to end.
+- All 74 published CVRPLIB optima reproduce exactly under this project's objective, pass
+  its feasibility checker, and are never beaten by any of its five methods.
 - Random giant tours Split into a *feasible* solution 0.4–0.6% of the time on the
   geographic instances against 14–99% on synthetic instances of the same size — the
   measurement behind the tightness finding, and the reason SA sits on its warm start.
@@ -723,6 +834,12 @@ Everything below was executed, not assumed.
   that every method gets. Since B&B usually *is* the reference on small instances, a 66.6%
   unproved interval was being reported as 0.004%. Renamed to `bnb_dual_gap_pct`, with
   `tests/test_metrics.py` written specifically to keep the two apart.
+- **Both constructions failed on tightly loaded instances**, and SA and ALNS then produced
+  *no solution at all* — their 200 random restarts cannot find a feasible start when the
+  feasible fraction is ~1/1000. Invisible for the life of the project because its own
+  generator never produces a tight instance; seven of the 74 Augerat instances do. Fixed
+  with a bin-packing fallback that fires only where the existing constructions return
+  nothing, so no committed number moves.
 - **A no-fly zone a drone could fly straight through** (described above under §3) — a
   segment entering and leaving a polygon through two *vertices* passed the blocking test.
   Found by a symmetric scenario-builder test, not by the random-geometry ones.
@@ -802,12 +919,15 @@ My read: §5.1's assignment-relaxation bound is in and moved the ceiling from `n
 Wilcoxon/Friedman/Nemenyi significance testing is in too, and its headline result is itself
 an answer to question 1: **GA, SA and ALNS are not pairwise distinguishable at `n = 12`
 instances**, so the confident "ALNS wins" language elsewhere in this document is a trend,
-not a proven claim. Closing that needs a larger instance set for statistical power, which
-is §3.3's benchmark-library import (CVRPLIB/Solomon) doing double duty — it would answer
-question 1 (compete on literature instances) *and* give §6 the sample size it's missing,
-probably more efficiently than generating more synthetic instances would. **That importer
-now exists**, so the remaining step is no longer engineering: it is downloading a set
-(Augerat A/B, Uchoa X, Solomon) and running the protocol over it, at which point §6's
-machinery sharpens automatically. A Held–Karp
+not a proven claim on that suite. **That has now been closed.** §3.3's importer was the
+route, exactly as predicted: the Augerat A/B/P sets went in, 74 paired instances came out,
+and ALNS beats the GA at `p = 2.0 × 10⁻⁸` with the Nemenyi post-hoc agreeing. So question 1
+has half an answer of its own — the project can compete on literature instances, and doing
+so immediately produced both its only external correctness evidence (74 published optima
+reproduced exactly) and its first statistically settled method comparison. What that run
+also showed is where the methods actually break: at 97%+ fleet utilisation every one of
+them freezes, because they all move customers between routes and almost no such move is
+feasible. Penalty-based infeasibility or ejection chains (§5.2) is now the best-evidenced
+next piece of solver work, ahead of more bound strengthening. A Held–Karp
 1-tree or the flow formulation's LP relaxation remains the path to a bigger jump past
 `n ≈ 10` whenever the exact side becomes the priority again.
