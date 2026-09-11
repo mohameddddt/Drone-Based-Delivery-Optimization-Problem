@@ -1272,6 +1272,17 @@ the instance. The second had `BANGKABELITUNG` printed half off the sheet, becaus
 place labeller had not inherited the frame-edge guard the invented one used. Neither would
 have been visible from the source.
 
+**And a false failure it produced on CI, which is the lesson repeated.** The harness
+counted any stderr line containing "ERROR" as a page console error. Chrome writes its own
+diagnostics to that same stream, and a GitHub Ubuntu runner opens with a wall of them --
+`Failed to connect to the bus`, `org.freedesktop.DBus.NameHasOwner` -- so both page tests
+failed on CI while rendering perfectly, on a laptop and on the runner alike. Only the
+page's own output carries Chrome's `CONSOLE` tag, and an exception reaching the top level
+always reads `Uncaught ...`, at INFO severity like every other console line -- so severity
+was never the signal and the word "ERROR" never was either. The filter now matches the tag.
+`tests/test_web_headless.py` pins it with the runner's verbatim output, and those three
+checks need no browser, so they cannot skip on the machine that would hide the bug.
+
 **And the browser test harness that was missing.** PROGRESS has listed "a headless smoke
 test of the rendered page" as the obvious next hardening step since the replay landed;
 `tests/test_web_headless.py` and `tools/headless_check.py` are it. They drive whatever

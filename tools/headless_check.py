@@ -128,6 +128,36 @@ PROBE = """
 """
 
 
+def page_console(stderr: str) -> List[str]:
+    """The lines the *page* logged, separated from the browser's own noise.
+
+    `--enable-logging=stderr` puts both in one stream, and only the page's are
+    tagged CONSOLE::
+
+        [..:INFO:CONSOLE:6] "Uncaught ReferenceError: f is not defined", source: ...
+        [..:ERROR:dbus/bus.cc:405] Failed to connect to the bus: ...
+
+    The second line is Chrome complaining about the machine it is running on. A
+    GitHub Ubuntu runner emits a wall of those -- D-Bus, GPU, sandbox -- and an
+    earlier version of this file matched any line containing "ERROR", so the
+    suite passed on a laptop and failed on CI while both pages rendered
+    perfectly. Match the tag, not the word.
+    """
+    return [ln.strip() for ln in stderr.splitlines() if ":CONSOLE" in ln]
+
+
+def console_errors(stderr: str) -> List[str]:
+    """Page console lines that mean the page broke.
+
+    Chrome logs every console message at INFO severity, `console.error`
+    included, so severity cannot separate them -- but an exception that reaches
+    the top level is always rendered as "Uncaught ...", which covers thrown
+    errors and rejected promises alike. That is the failure this harness exists
+    to catch.
+    """
+    return [ln for ln in page_console(stderr) if "Uncaught" in ln]
+
+
 def find_browser(explicit: Optional[str] = None) -> Optional[str]:
     if explicit:
         return explicit if Path(explicit).exists() else None
@@ -177,8 +207,8 @@ def run(page: Path, browser: str, png: Optional[Path] = None,
             "stop_markers": dom.count('class="stop"'),
             "route_paths": dom.count('class="route"'),
             "svg_present": "<svg" in dom and 'id="map"' in dom,
-            "console_errors": [ln for ln in proc.stderr.splitlines()
-                               if "ERROR" in ln or "Uncaught" in ln],
+            "console_messages": page_console(proc.stderr),
+            "console_errors": console_errors(proc.stderr),
         }
         for layer in ("lyrGround", "lyrZones", "lyrRoutes", "lyrStops", "lyrDrones"):
             block = _layer_block(dom, layer)
