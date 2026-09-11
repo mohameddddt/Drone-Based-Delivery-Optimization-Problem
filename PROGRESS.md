@@ -80,7 +80,7 @@ the *recipe* an instance is built from rather than the instance itself.
 
 ### §1.4 Tests
 
-**399 tests** with the third-party data present, 248 without it (the CVRPLIB checks skip when those files are absent, and the browser checks skip where no Chrome is installed). The ones the roadmap called for specifically:
+**624 tests.** On this machine 557 pass and 67 skip: the Playwright browser suite needs `playwright install chromium`, and the 150 CVRPLIB checks need the third-party benchmark files, which are not committed. The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -531,6 +531,23 @@ would move `SAResult` on every instance, and the committed run's numbers and
 `test_notebook_parity.py` are pinned to the current behaviour. It is written down as a
 measured finding with a mechanism, and belongs with §6's ablations rather than in a
 visualisation change.
+
+**Resolved since, and the two diagnoses differ in an instructive way.** §5.4 below fixed
+it, arriving at the same wall from the opposite direction: Solomon, where SA returned its
+warm start on all 56 instances. The dashboard's reading above is that cooling *would*
+finish in 8,700 iterations but reheats keep resetting it; the Solomon reading is that on
+larger instances only ~1,400 iterations fit in the budget, so it never finishes cooling at
+all. Both are true, and they are the same defect seen at two scales -- a schedule that
+counts iterations inside a loop that counts seconds. The fix re-derives the cooling rate
+from the measured iteration rate, including immediately after each reheat, which covers
+both. The deferral's own premise has also expired: the committed run has since been
+re-measured, and `test_notebook_parity.py` pins B&B optima and greedy energies, neither of
+which SA touches.
+
+Worth reading the table above with that in mind. Its `n = 25, K = 6` row -- 0 improvements,
+2085.7 against ALNS's 1959.8 -- is the same instance that now reads 1645.4 for SA in "The
+committed run", better than ALNS's 1651.9. The dashboard was right about the mechanism and
+right to record it; what it could not see was how much was being lost.
 
 ### §2.4 What the browser found this time
 
@@ -1029,7 +1046,7 @@ infeasible by our checker: 0
 Exact agreement on all 74, and our feasibility checker accepts every one. That is the
 strongest correctness evidence in the project, and it is the only *external* evidence in
 it. `tests/test_cvrplib_published.py` keeps it (150 cases; it skips when the files are
-absent, which is why the suite reports 399 tests here and 248 in CI).
+absent, which is why 150 of the 624 tests skip without them).
 
 **A gap this exposed immediately.** Seven of the 74 load the fleet to 93–99% of its total
 capacity. The synthetic generator always leaves 41% slack (`payload_factor = 1.7`), so no
@@ -1540,7 +1557,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **399 tests pass** — 382 fast (~87 s), 17 slow (~59 s). Without the third-party benchmark files that is 248; those checks skip rather than fail.
+- **624 tests collected; 557 pass and 67 skip here** (~4 min for the whole suite, 540 of them in the fast subset). The skips are the Playwright pages, which need a chromium download; nothing fails.
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.

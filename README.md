@@ -10,7 +10,7 @@ Ships with two mathematical formulations, an NP-hardness proof, an exact Branch 
 with an anytime dual bound, three metaheuristics, visibility-graph routing around polygonal
 no-fly zones, a reproducible benchmark generator, instances built from a real last-mile
 coordinate dataset, CVRPLIB/Solomon import, QGroundControl mission export, an experiment
-harness, and 471 tests -- including brute-force verification of the pieces
+harness, and 624 tests -- including brute-force verification of the pieces
 everything else rests on, 74 published CVRPLIB optima reproduced exactly, and all three
 HTML pages driven in a real browser.
 
@@ -150,7 +150,7 @@ drp/
                treedata/webtree (B&B tree explorer)
                dashdata/webdash (convergence dashboard) · web/ (page templates)
   app/         cli
-tests/         471 tests, incl. brute-force, published-optimum and browser checks
+tests/         624 tests, incl. brute-force, published-optimum and browser checks
 report/        report.tex + generated tables
 results/       runs.db, CSVs, figures
 data/source/   the supplied last-mile coordinate dataset
@@ -276,7 +276,7 @@ chromium`; without them they skip with a message rather than passing silently. L
 the CVRPLIB/Solomon tests skip without the third-party benchmark data, which is not
 committed.
 
-**471 tests** with everything present. The ones that matter most:
+**624 tests** with everything present. The ones that matter most:
 
 | Test | What it proves |
 |---|---|
