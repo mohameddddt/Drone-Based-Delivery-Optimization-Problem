@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Delivery Planner</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Courier+Prime:wght@400;700&display=swap">
+<style>
+  :root{
+    --paper:#EDEBE1; --paper-2:#E2DFD2; --panel:#FBFAF5;
+    --ink:#1B1F1A; --muted:#585D51; --muted-2:#8A8F80;
+    --line:#D3D5C8; --line-2:#BFC2B3;
+    --restricted:#8E2F63; --caution:#B23A22; --warn:#9C6B12; --success:#3E7A3C;
+    --accent:#2C4F55; --accent-2:#3E7078; --accent-ink:#FFFFFF;
+    --f-display:'Familjen Grotesk',system-ui,sans-serif;
+    --f-mono:'Courier Prime',ui-monospace,Consolas,monospace;
+    --r:5px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{background:var(--paper);color:var(--ink);font-family:var(--f-display);}
+  button{font-family:inherit;}
+  input{font-family:var(--f-mono);}
+
+  .wrap{max-width:1440px;margin:0 auto;padding:22px 16px 40px;
+    display:flex;flex-direction:column;gap:12px;}
+
+  .hud{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:16px 22px;display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:space-between;gap:16px;}
+  .hud-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .eyebrow{font-weight:600;font-size:10px;letter-spacing:.16em;color:var(--accent);
+    text-transform:uppercase;}
+  .hud-title h1{font-weight:700;font-size:clamp(20px,3vw,27px);margin:0;letter-spacing:-.01em;}
+  .hud-title .sub{font-family:var(--f-mono);font-size:11px;color:var(--muted-2);}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px;align-items:start;}
+  @media (max-width:1040px){.layout{grid-template-columns:1fr;}}
+
+  .map-panel{position:relative;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--paper);overflow:hidden;width:100%;aspect-ratio:4/3;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.9);}
+  .map-panel svg.map{width:100%;height:100%;display:block;touch-action:none;
+    cursor:crosshair;background:#F1EFE6;}
+  .map-panel svg.map.panning{cursor:grabbing;}
+  .map-chrome{position:absolute;inset:0;pointer-events:none;}
+  .map-chrome > *{pointer-events:auto;}
+  .plate{background:rgba(251,250,245,.93);border:1px solid var(--line);border-radius:4px;}
+  .readout{position:absolute;left:10px;top:10px;padding:4px 8px;font-family:var(--f-mono);
+    font-size:9.5px;color:var(--muted);letter-spacing:.04em;}
+  .hint{position:absolute;left:10px;bottom:10px;padding:5px 9px;font-size:10px;
+    color:var(--muted);max-width:70%;}
+  .zoomer{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;
+    overflow:hidden;}
+  .zoomer button{width:29px;height:28px;border:0;background:transparent;color:var(--muted);
+    cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;
+    justify-content:center;border-bottom:1px solid var(--line);}
+  .zoomer button:last-child{border-bottom:0;font-size:10px;}
+  .zoomer button:hover{background:var(--accent);color:var(--accent-ink);}
+  .scalebar{position:absolute;left:10px;top:34px;padding:4px 8px;font-family:var(--f-mono);
+    font-size:9.5px;color:var(--muted);}
+  .badflag{position:absolute;right:10px;top:10px;padding:5px 9px;font-size:10px;
+    color:var(--accent-ink);background:var(--caution);border:1px solid var(--caution);}
+  .badflag[hidden]{display:none;}
+
+  .card{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:12px;}
+  .card > h2{font-weight:600;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted-2);margin:0 0 9px 1px;display:flex;justify-content:space-between;
+    align-items:center;}
+  .card > h2 em{font-style:normal;color:var(--accent);font-family:var(--f-mono);
+    letter-spacing:0;text-transform:none;font-size:10px;}
+
+  .rail{display:flex;flex-direction:column;gap:12px;min-width:0;}
+  .field{display:flex;justify-content:space-between;align-items:center;gap:8px;
+    padding:4px 0;font-size:11.5px;color:var(--muted);}
+  .field input{width:88px;padding:4px 6px;border:1px solid var(--line-2);border-radius:4px;
+    background:var(--paper);color:var(--ink);font-size:11.5px;text-align:right;}
+
+  .stop-row{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10.5px;
+    color:var(--muted);border-bottom:1px dotted var(--line);}
+  .stop-row:last-child{border-bottom:0;}
+  .stop-row .idx{font-family:var(--f-mono);width:20px;color:var(--ink);}
+  .stop-row .xy{font-family:var(--f-mono);flex:1;color:var(--muted-2);font-size:9.5px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stop-row input{width:52px;padding:3px 4px;border:1px solid var(--line-2);border-radius:3px;
+    background:var(--paper);color:var(--ink);font-size:10.5px;text-align:right;}
+  .stop-row button{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    border-radius:3px;width:20px;height:20px;cursor:pointer;line-height:1;}
+  .stop-row button:hover{background:var(--caution);color:var(--accent-ink);border-color:var(--caution);}
+  .empty-note{font-size:10.5px;color:var(--muted-2);font-style:italic;padding:4px 0;}
+
+  .solve-btn{width:100%;border:1px solid var(--accent);background:var(--accent);
+    color:var(--accent-ink);border-radius:4px;padding:10px;font-weight:600;font-size:12px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+  .solve-btn:disabled{opacity:.5;cursor:default;}
+  .solve-status{margin-top:8px;font-size:10.5px;color:var(--muted);line-height:1.5;}
+  .solve-status.bad{color:var(--caution);}
+  .solve-status.good{color:var(--success);}
+
+  .tabs-card[hidden]{display:none;}
+  .tabbar{display:flex;gap:4px;margin-bottom:10px;}
+  .tab{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    border-radius:4px;padding:7px 13px;font-size:10.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;cursor:pointer;}
+  .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+  .tabpanel[hidden]{display:none;}
+  .tabtools{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .tabtools .budgets{display:flex;gap:3px;}
+  .tabtools .budgets button{font-family:var(--f-mono);font-size:10px;padding:4px 8px;
+    border-radius:4px;border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    cursor:pointer;}
+  .tabtools .budgets button.on{color:var(--accent-ink);background:var(--accent);
+    border-color:var(--accent);}
+  .run-btn{border:1px solid var(--accent);background:var(--paper);color:var(--accent);
+    border-radius:4px;padding:6px 12px;font-size:10.5px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;cursor:pointer;}
+  .run-btn:hover{background:var(--accent);color:var(--accent-ink);}
+  .run-btn[hidden]{display:none;}
+  .tab-note{font-size:10.5px;color:var(--muted);margin:0 0 8px;}
+  .tab-status{font-size:10.5px;color:var(--caution);margin-top:6px;}
+  iframe.result-frame{width:100%;height:640px;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--panel);}
+  iframe.result-frame[hidden]{display:none;}
+  .tab-loading[hidden]{display:none;}
+  .tab-loading{font-family:var(--f-mono);font-size:11px;color:var(--accent);padding:10px 0;}
+
+  .loading-overlay{position:fixed;inset:0;background:rgba(27,31,26,.45);
+    display:flex;align-items:center;justify-content:center;z-index:20;}
+  .loading-overlay[hidden]{display:none;}
+  .loading-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:26px 34px;text-align:center;min-width:240px;}
+  .loading-card .label{font-weight:600;font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:10px;}
+  .loading-card .countdown{font-family:var(--f-mono);font-size:20px;color:var(--ink);}
+  .loading-card .spinner{width:26px;height:26px;margin:0 auto 12px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;}
+  @media (prefers-reduced-motion: reduce){.loading-card .spinner{animation:none;}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  @media (max-width:430px){
+    iframe.result-frame{height:420px;}
+    .wrap{padding:14px 10px 28px;}
+  }
+
+  .offline-note{max-width:640px;margin:12vh auto;padding:0 24px;
+    font-family:system-ui,sans-serif;color:#1B1F1A;line-height:1.6;}
+  .offline-note h1{font-size:20px;margin:0 0 12px;}
+  .offline-note p{margin:0 0 12px;color:#585D51;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hud">
+    <div class="hud-title">
+      <span class="eyebrow">Interactive planner</span>
+      <h1>Drone Delivery Planner</h1>
+      <span class="sub">place stops, set the fleet, solve</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="map-panel" id="mapPanel">
+      <svg class="map" id="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
+           role="application"
+           aria-label="Delivery map -- click to add a stop, drag a stop to move it, click a stop to remove it"
+           tabindex="0">
+        <defs id="mapDefs"></defs>
+        <g id="world">
+          <g id="lyrGrat"></g>
+          <g id="lyrStops"></g>
+          <g id="lyrHub"></g>
+        </g>
+      </svg>
+      <div class="map-chrome">
+        <div class="plate readout" id="readout">&mdash;</div>
+        <div class="plate scalebar" id="scaleTxt">&mdash;</div>
+        <div class="plate zoomer">
+          <button id="zIn" title="Zoom in (+)" aria-label="Zoom in">&#43;</button>
+          <button id="zOut" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
+          <button id="zRst" title="Reset view (0)" aria-label="Reset view">RST</button>
+        </div>
+        <div class="plate hint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it</div>
+        <div class="badflag" id="badFlag" hidden></div>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <section class="card">
+        <h2>Fleet</h2>
+        <div class="field"><span>Drones</span><input id="fDrones" type="number" min="1" step="1"></div>
+        <div class="field"><span>Payload</span><input id="fPayload" type="number" min="0.1" step="0.5"></div>
+        <div class="field"><span>Battery</span><input id="fBattery" type="number" min="1" step="5"></div>
+      </section>
+      <section class="card">
+        <h2>Stops <em id="stopCount">0</em></h2>
+        <div id="stopsList"><div class="empty-note">click the map to add one</div></div>
+      </section>
+      <section class="card">
+        <button class="solve-btn" id="solveBtn">Solve</button>
+        <div class="solve-status" id="solveStatus"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="card tabs-card" id="tabsCard" hidden>
+    <div class="tabbar">
+      <button class="tab on" data-tab="flight">Flight replay</button>
+      <button class="tab" data-tab="dash">Convergence dashboard</button>
+      <button class="tab" data-tab="tree">Search tree</button>
+    </div>
+
+    <div class="tabpanel" data-panel="flight">
+      <iframe class="result-frame" id="flightFrame" title="Flight replay"></iframe>
+    </div>
+
+    <div class="tabpanel" data-panel="dash" hidden>
+      <div class="tabtools" data-for="dash">
+        <span class="tab-note" style="margin:0">Budget</span>
+        <div class="budgets">
+          <button data-b="quick" class="on">quick</button>
+          <button data-b="thorough">thorough</button>
+        </div>
+        <button class="run-btn" id="runDash">Run</button>
+      </div>
+      <div class="tab-loading" id="dashLoading" hidden></div>
+      <div class="tab-status" id="dashStatus"></div>
+      <iframe class="result-frame" id="dashFrame" title="Convergence dashboard" hidden></iframe>
+    </div>
+
+    <div class="tabpanel" data-panel="tree" hidden>
+      <p class="tab-note" id="treeNote"></p>
+      <div class="tabtools" data-for="tree">
+        <span class="tab-note" style="margin:0">Budget</span>
+        <div class="budgets">
+          <button data-b="quick" class="on">quick</button>
+          <button data-b="thorough">thorough</button>
+        </div>
+        <button class="run-btn" id="runTree">Run</button>
+      </div>
+      <div class="tab-loading" id="treeLoading" hidden></div>
+      <div class="tab-status" id="treeStatus"></div>
+      <iframe class="result-frame" id="treeFrame" title="B&amp;B search tree" hidden></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay" hidden>
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <div class="label" id="loadingLabel">Solving</div>
+    <div class="countdown" id="loadingCountdown">0.0 / 0.0 s</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+// This page needs GSAP for nothing -- unlike the replay/tree/dashboard pages
+// it has no choreography, only a form and a map, so it is plain DOM/SVG and
+// does not carry the GSAP-or-nothing guard those three pages need. The
+// Google Fonts link above is decorative only: if it fails to load the page
+// still works, just in a fallback system font.
+
+const DATA = __DRP_PLANNER_DATA_JSON__;
+const NS = "http://www.w3.org/2000/svg";
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+// ---------- theme (matches the other three pages) ----------
+const THEME = (DATA && DATA.theme) || null;
+const CSS_VARS = {
+  "--paper":"paper", "--paper-2":"paper2", "--panel":"panel", "--ink":"ink",
+  "--muted":"muted", "--muted-2":"muted2", "--line":"line", "--line-2":"line2",
+  "--restricted":"restricted", "--caution":"caution", "--warn":"warn",
+  "--success":"success", "--accent":"accent", "--accent-2":"accent2",
+};
+function applyTheme(tokens){
+  if (!tokens) return;
+  const root = document.documentElement.style;
+  for (const k in CSS_VARS){ if (tokens[CSS_VARS[k]]) root.setProperty(k, tokens[CSS_VARS[k]]); }
+}
+applyTheme(THEME ? THEME.tokens : null);
+const routeColor = THEME ? THEME.palette[0] : "#002E89";
+
+// ===========================================================================
+// geometry + camera -- copied and trimmed from playback_template.html's
+// pan/zoom/hit-testing block (roadmap §2.1: "a copied-and-trimmed camera
+// block is acceptable for this version"). Planar only: the planner does not
+// build geodesic instances, so there is no lat/lon projection branch here.
+// Pinch-zoom (touch) is trimmed too -- wheel/drag/buttons/keys only.
+// ===========================================================================
+const PLANE = DATA.plane;
+const flipY = y => PLANE.ymin + PLANE.ymax - y;
+const toSvg = p => [p[0], flipY(p[1])];
+const fromSvg = w => [w[0], flipY(w[1])];
+
+const svg = document.getElementById("map");
+const L = {
+  grat: document.getElementById("lyrGrat"),
+  stops: document.getElementById("lyrStops"),
+  hub: document.getElementById("lyrHub"),
+};
+
+function el(tag, attrs){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+const dataW = PLANE.xmax - PLANE.xmin, dataH = PLANE.ymax - PLANE.ymin;
+const pad = Math.max(dataW, dataH) * 0.14;
+const bounds = {xmin: PLANE.xmin, xmax: PLANE.xmax, ymin: PLANE.ymin, ymax: PLANE.ymax};
+
+const HOME = {x:0, y:0, w:1, h:1};
+const camera = {x:0, y:0, w:1, h:1};
+let panelAspect = 4/3;
+
+function fitHome(){
+  const r = svg.getBoundingClientRect();
+  panelAspect = (r.width && r.height) ? r.width / r.height : 4/3;
+  const wantW = dataW + 2*pad, wantH = dataH + 2*pad;
+  let w = wantW, h = wantH;
+  if (wantW / wantH < panelAspect) w = wantH * panelAspect; else h = wantW / panelAspect;
+  HOME.w = w; HOME.h = h;
+  HOME.x = (bounds.xmin + bounds.xmax)/2 - w/2;
+  HOME.y = (bounds.ymin + bounds.ymax)/2 - h/2;
+}
+fitHome();
+Object.assign(camera, HOME);
+const unit = Math.max(HOME.w, HOME.h) / 100;
+
+const MINW = HOME.w / 6, MAXW = HOME.w * 3;
+let pxPerWorld = 1, symK = 1;
+
+function clampCam(){
+  camera.w = clamp(camera.w, MINW, MAXW);
+  camera.h = camera.w / panelAspect;
+  const wantW = dataW + 2*pad, wantH = dataH + 2*pad;
+  const cx0 = bounds.xmin + dataW/2, cy0 = bounds.ymin + dataH/2;
+  const halfW = Math.max(camera.w, wantW) / 2, halfH = Math.max(camera.h, wantH) / 2;
+  camera.x = clamp(camera.x, cx0 - halfW, cx0 + halfW - camera.w);
+  camera.y = clamp(camera.y, cy0 - halfH, cy0 + halfH - camera.h);
+}
+
+function applyCamera(){
+  svg.setAttribute("viewBox",
+    `${camera.x.toFixed(3)} ${camera.y.toFixed(3)} ${camera.w.toFixed(3)} ${camera.h.toFixed(3)}`);
+  const rect = svg.getBoundingClientRect();
+  pxPerWorld = rect.width ? rect.width / camera.w : 1;
+  symK = clamp(camera.w / HOME.w, 0.4, 2.5);
+  drawGraticule();
+  updateScaleBar();
+  render();
+}
+
+function zoomAbout(px, py, factor){
+  const r = svg.getBoundingClientRect();
+  const wx = camera.x + (px - r.left) / r.width * camera.w;
+  const wy = camera.y + (py - r.top) / r.height * camera.h;
+  const newW = clamp(camera.w * factor, MINW, MAXW);
+  camera.x = wx - (px - r.left) / r.width * newW;
+  camera.y = wy - (py - r.top) / r.height * (newW / panelAspect);
+  camera.w = newW; camera.h = newW / panelAspect;
+  clampCam(); applyCamera();
+}
+function rectCenter(){
+  const r = svg.getBoundingClientRect();
+  return [r.left + r.width/2, r.top + r.height/2];
+}
+function resetView(){ Object.assign(camera, HOME); applyCamera(); }
+
+svg.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  zoomAbout(ev.clientX, ev.clientY, ev.deltaY > 0 ? 1.12 : 1/1.12);
+}, {passive:false});
+document.getElementById("zIn").addEventListener("click", () => {
+  const [cx, cy] = rectCenter(); zoomAbout(cx, cy, 1/1.3);
+});
+document.getElementById("zOut").addEventListener("click", () => {
+  const [cx, cy] = rectCenter(); zoomAbout(cx, cy, 1.3);
+});
+document.getElementById("zRst").addEventListener("click", resetView);
+svg.addEventListener("dblclick", resetView);
+window.addEventListener("keydown", ev => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  const step = camera.w * 0.08;
+  if (ev.key === "ArrowLeft"){ camera.x -= step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowRight"){ camera.x += step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowUp"){ camera.y -= step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowDown"){ camera.y += step; clampCam(); applyCamera(); }
+  else if (ev.key === "0"){ resetView(); }
+  else if (ev.key === "+" || ev.key === "="){ const [cx,cy]=rectCenter(); zoomAbout(cx,cy,1/1.3); }
+  else if (ev.key === "-"){ const [cx,cy]=rectCenter(); zoomAbout(cx,cy,1.3); }
+});
+
+function screenToWorld(ev){
+  const r = svg.getBoundingClientRect();
+  const sx = camera.x + (ev.clientX - r.left) / r.width * camera.w;
+  const sy = camera.y + (ev.clientY - r.top) / r.height * camera.h;
+  return fromSvg([sx, sy]);
+}
+
+function drawGraticule(){
+  while (L.grat.firstChild) L.grat.removeChild(L.grat.firstChild);
+  const n = 6;
+  for (let i = 0; i <= n; i++){
+    const x = bounds.xmin + (bounds.xmax - bounds.xmin) * i / n;
+    const y = bounds.ymin + (bounds.ymax - bounds.ymin) * i / n;
+    const [sx] = toSvg([x, bounds.ymin]);
+    const [, sy] = toSvg([bounds.xmin, y]);
+    L.grat.appendChild(el("line", {x1:sx, y1:camera.y-pad, x2:sx, y2:camera.y+camera.h+pad,
+      stroke:"var(--line)", "stroke-width": 0.3*unit, opacity:0.5}));
+    L.grat.appendChild(el("line", {x1:camera.x-pad, y1:sy, x2:camera.x+camera.w+pad, y2:sy,
+      stroke:"var(--line)", "stroke-width": 0.3*unit, opacity:0.5}));
+  }
+}
+
+function updateScaleBar(){
+  document.getElementById("scaleTxt").textContent =
+    `field ${dataW.toFixed(0)}×${dataH.toFixed(0)} units`;
+}
+
+function updateReadout(ev){
+  const w = screenToWorld(ev);
+  document.getElementById("readout").textContent =
+    `x ${w[0].toFixed(1)}  y ${w[1].toFixed(1)}`;
+}
+
+// ===========================================================================
+// stops + depot state
+// ===========================================================================
+let stops = [];           // [{x, y, demand}], array order == future customer id
+let badStopIndex = null;  // 1-based index the last solve flagged, or null
+
+const fleet = {
+  n_drones: DATA.fleet.n_drones,
+  payload: DATA.fleet.payload,
+  battery: DATA.fleet.battery,
+};
+
+function addStop(w){
+  if (stops.length >= DATA.limits.max_stops){
+    setSolveStatus(`at most ${DATA.limits.max_stops} stops`, true);
+    return;
+  }
+  const x = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  const y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  stops.push({x, y, demand: DATA.demand_default});
+  badStopIndex = null;
+  render(); renderStopsList();
+}
+function removeStopAt(i){
+  stops.splice(i, 1);
+  badStopIndex = null;
+  render(); renderStopsList();
+}
+function moveStopAt(i, w){
+  const s = stops[i];
+  if (!s) return;
+  s.x = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  s.y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  render();
+}
+
+function render(){
+  while (L.stops.firstChild) L.stops.removeChild(L.stops.firstChild);
+  while (L.hub.firstChild) L.hub.removeChild(L.hub.firstChild);
+
+  const [hx, hy] = toSvg(DATA.depot);
+  const hr = 2.6 * unit * symK;
+  const hub = el("path", {
+    d: `M ${hx} ${hy-hr} L ${hx+hr} ${hy} L ${hx} ${hy+hr} L ${hx-hr} ${hy} Z`,
+    fill: "var(--accent)", stroke: "var(--panel)", "stroke-width": 0.4*unit*symK,
+  });
+  hub.setAttribute("data-role", "depot");
+  L.hub.appendChild(hub);
+
+  const r = 2.1 * unit * symK;
+  stops.forEach((s, i) => {
+    const [sx, sy] = toSvg([s.x, s.y]);
+    const bad = badStopIndex === i + 1;
+    const g = el("g", {"data-stop": String(i), "data-role": "stop"});
+    g.appendChild(el("circle", {
+      cx:sx, cy:sy, r,
+      fill: bad ? "var(--caution)" : "var(--panel)",
+      stroke: bad ? "var(--caution)" : "var(--accent)",
+      "stroke-width": 0.5*unit*symK,
+    }));
+    const t = el("text", {
+      x:sx, y:sy, "text-anchor":"middle", "dominant-baseline":"central",
+      "font-family":"var(--f-mono)", "font-size": 2.0*unit*symK,
+      fill: bad ? "var(--panel)" : "var(--accent)", "pointer-events":"none",
+    });
+    t.textContent = String(i + 1);
+    g.appendChild(t);
+    L.stops.appendChild(g);
+  });
+
+  document.getElementById("stopCount").textContent = String(stops.length);
+}
+
+function renderStopsList(){
+  const box = document.getElementById("stopsList");
+  box.innerHTML = "";
+  if (stops.length === 0){
+    box.innerHTML = '<div class="empty-note">click the map to add one</div>';
+    return;
+  }
+  stops.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "stop-row";
+    const idx = document.createElement("span");
+    idx.className = "idx"; idx.textContent = String(i + 1);
+    const xy = document.createElement("span");
+    xy.className = "xy"; xy.textContent = `${s.x.toFixed(1)}, ${s.y.toFixed(1)}`;
+    const demand = document.createElement("input");
+    demand.type = "number"; demand.min = "0"; demand.step = "0.5";
+    demand.value = s.demand;
+    demand.title = "demand";
+    demand.addEventListener("change", () => {
+      const v = parseFloat(demand.value);
+      s.demand = isFinite(v) && v >= 0 ? v : s.demand;
+      demand.value = s.demand;
+    });
+    const del = document.createElement("button");
+    del.textContent = "×"; del.title = "remove";
+    del.addEventListener("click", () => removeStopAt(i));
+    row.append(idx, xy, demand, del);
+    box.appendChild(row);
+  });
+}
+
+// ---------- pointer handling: pan the background, add/move/remove a stop ----------
+let dragMode = null;   // null | "pan" | "stop"
+let dragIndex = null;
+let dragStart = {x:0, y:0};
+let camStart = {x:0, y:0};
+let moved = 0;
+
+svg.addEventListener("pointerdown", ev => {
+  svg.setPointerCapture(ev.pointerId);
+  const stopEl = ev.target.closest && ev.target.closest("[data-stop]");
+  dragStart = {x: ev.clientX, y: ev.clientY};
+  moved = 0;
+  if (stopEl){
+    dragMode = "stop";
+    dragIndex = +stopEl.getAttribute("data-stop");
+  } else {
+    dragMode = "pan";
+    camStart = {x: camera.x, y: camera.y};
+    svg.classList.add("panning");
+  }
+});
+svg.addEventListener("pointermove", ev => {
+  updateReadout(ev);
+  if (!dragMode) return;
+  const dx = ev.clientX - dragStart.x, dy = ev.clientY - dragStart.y;
+  moved = Math.max(moved, Math.hypot(dx, dy));
+  if (dragMode === "pan"){
+    const r = svg.getBoundingClientRect();
+    camera.x = camStart.x - dx / r.width * camera.w;
+    camera.y = camStart.y - dy / r.height * camera.h;
+    clampCam(); applyCamera();
+  } else if (dragMode === "stop" && moved >= 4){
+    moveStopAt(dragIndex, screenToWorld(ev));
+  }
+});
+svg.addEventListener("pointerup", ev => {
+  try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+  svg.classList.remove("panning");
+  if (dragMode === "pan" && moved < 4){
+    addStop(screenToWorld(ev));
+  } else if (dragMode === "stop"){
+    if (moved < 4) removeStopAt(dragIndex);
+    else renderStopsList();
+  }
+  dragMode = null; dragIndex = null;
+});
+
+// ===========================================================================
+// fleet form
+// ===========================================================================
+const fDrones = document.getElementById("fDrones");
+const fPayload = document.getElementById("fPayload");
+const fBattery = document.getElementById("fBattery");
+fDrones.max = String(DATA.limits.max_drones);
+fDrones.value = fleet.n_drones;
+fPayload.value = fleet.payload;
+fBattery.value = fleet.battery;
+
+fDrones.addEventListener("change", () => {
+  const v = clamp(Math.round(+fDrones.value) || 1, 1, DATA.limits.max_drones);
+  fleet.n_drones = v; fDrones.value = v;
+});
+fPayload.addEventListener("change", () => {
+  const v = parseFloat(fPayload.value);
+  fleet.payload = (isFinite(v) && v > 0) ? v : fleet.payload;
+  fPayload.value = fleet.payload;
+});
+fBattery.addEventListener("change", () => {
+  const v = parseFloat(fBattery.value);
+  fleet.battery = (isFinite(v) && v > 0) ? v : fleet.battery;
+  fBattery.value = fleet.battery;
+});
+
+// ===========================================================================
+// solve -> loading -> results
+// ===========================================================================
+let currentSessionId = null;
+let solvedStopCount = 0;
+
+function buildInstancePayload(){
+  return {
+    schema: "drp-instance/v1",
+    name: "planner",
+    n_customers: stops.length,
+    fleet: {n_drones: fleet.n_drones, payload: fleet.payload, battery: fleet.battery},
+    energy: {alpha: DATA.energy.alpha, beta: DATA.energy.beta},
+    geodesic: false,
+    round_distances: false,
+    depot: DATA.depot,
+    customers: stops.map((s, i) => ({id: i + 1, coord: [s.x, s.y], demand: s.demand})),
+    nofly: {edges: [], polygons: []},
+    seed: null,
+  };
+}
+
+function setSolveStatus(msg, bad){
+  const el = document.getElementById("solveStatus");
+  el.textContent = msg;
+  el.className = "solve-status" + (bad ? " bad" : msg ? " good" : "");
+}
+function showBadFlag(msg){
+  const f = document.getElementById("badFlag");
+  if (msg){ f.textContent = msg; f.hidden = false; } else { f.hidden = true; }
+}
+
+// Real elapsed time against the real budget the request was sent with -- no
+// fabricated progress, no synthetic steps (roadmap §2.1's own rule). B&B is
+// labelled "up to Ns" because it can finish before its budget; the
+// metaheuristics run to theirs, so a plain "elapsed / budget" is accurate.
+function startCountdown(cdEl, budget, upto, prefix){
+  const t0 = performance.now();
+  function tick(){
+    const elapsed = (performance.now() - t0) / 1000;
+    cdEl.textContent = (prefix || "") + (upto
+      ? `${elapsed.toFixed(1)}s elapsed (up to ${budget.toFixed(1)}s)`
+      : `${elapsed.toFixed(1)} / ${budget.toFixed(1)} s`);
+  }
+  tick();
+  return setInterval(tick, 100);
+}
+
+function showLoading(label, budget, upto){
+  const overlay = document.getElementById("loadingOverlay");
+  document.getElementById("loadingLabel").textContent = label;
+  overlay.hidden = false;
+  return startCountdown(document.getElementById("loadingCountdown"), budget, upto);
+}
+function hideLoading(timer){
+  clearInterval(timer);
+  document.getElementById("loadingOverlay").hidden = true;
+}
+
+async function solve(){
+  if (stops.length < DATA.limits.min_stops){
+    setSolveStatus(`place at least ${DATA.limits.min_stops} stops first`, true);
+    return;
+  }
+  const btn = document.getElementById("solveBtn");
+  btn.disabled = true;
+  showBadFlag(null);
+  const budget = DATA.budgets.solve;
+  const timer = showLoading("Solving", budget, false);
+  try {
+    const resp = await fetch("/api/solve", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(buildInstancePayload()),
+    });
+    let data;
+    try { data = await resp.json(); }
+    catch (e) { data = {ok:false, error: "the server sent back something that wasn't JSON"}; }
+    hideLoading(timer);
+
+    if (!resp.ok || !data.ok){
+      setSolveStatus(data.error || `solve failed (HTTP ${resp.status})`, true);
+      return;
+    }
+    currentSessionId = data.id;
+    if (!data.feasible){
+      badStopIndex = data.stop || null;
+      render();
+      setSolveStatus(data.reason || "this fleet cannot serve these stops", true);
+      if (data.stop) showBadFlag(`stop ${data.stop} is the problem`);
+      document.getElementById("tabsCard").hidden = true;
+      return;
+    }
+    solvedStopCount = stops.length;
+    setSolveStatus(
+      `solved: energy ${data.energy.toFixed(1)}, ${data.drones_used} drone(s) used, `
+      + `${data.wall_time.toFixed(2)}s`, false);
+    document.getElementById("tabsCard").hidden = false;
+    document.getElementById("flightFrame").src = data.replay_url;
+    resetDashTreeTabs();
+    switchTab("flight");
+  } catch (err) {
+    hideLoading(timer);
+    setSolveStatus("request failed: " + err, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById("solveBtn").addEventListener("click", solve);
+
+// ===========================================================================
+// dashboard / tree tabs -- computed on first open, each with its own honest
+// countdown and a quick/thorough budget switch
+// ===========================================================================
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === name));
+  document.querySelectorAll(".tabpanel").forEach(p => { p.hidden = p.dataset.panel !== name; });
+}
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
+const tabBudget = {dash: "quick", tree: "quick"};
+document.querySelectorAll(".tabtools").forEach(group => {
+  const kind = group.dataset.for;
+  group.querySelectorAll("[data-b]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      group.querySelectorAll("[data-b]").forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      tabBudget[kind] = btn.dataset.b;
+    });
+  });
+});
+
+function resetDashTreeTabs(){
+  const dashFrame = document.getElementById("dashFrame");
+  const treeFrame = document.getElementById("treeFrame");
+  dashFrame.hidden = true; dashFrame.removeAttribute("src");
+  treeFrame.hidden = true; treeFrame.removeAttribute("src");
+  document.getElementById("runDash").hidden = false;
+  document.getElementById("runTree").hidden = false;
+  document.getElementById("dashStatus").textContent = "";
+  document.getElementById("treeStatus").textContent = "";
+  document.getElementById("treeNote").textContent = solvedStopCount > DATA.tree_complete_ceiling
+    ? `This instance has ${solvedStopCount} stops. B&B's tree is only complete for `
+      + `roughly ${DATA.tree_complete_ceiling} or fewer -- above that you'll see a `
+      + `prefix of the search, not the whole tree, and the page says so.`
+    : `This instance has ${solvedStopCount} stops, small enough that B&B will likely `
+      + `finish the whole tree within its budget.`;
+}
+
+async function runTab(kind){
+  if (!currentSessionId) return;
+  const btn = document.getElementById(kind === "dash" ? "runDash" : "runTree");
+  const loadEl = document.getElementById(kind === "dash" ? "dashLoading" : "treeLoading");
+  const statusEl = document.getElementById(kind === "dash" ? "dashStatus" : "treeStatus");
+  const frame = document.getElementById(kind === "dash" ? "dashFrame" : "treeFrame");
+  const upto = kind === "tree";
+  const budgetName = tabBudget[kind];
+  const budget = (kind === "dash" ? DATA.budgets.dash : DATA.budgets.tree)[budgetName];
+
+  btn.disabled = true;
+  statusEl.textContent = "";
+  loadEl.hidden = false;
+  const timer = startCountdown(loadEl, budget, upto, "running… ");
+
+  try {
+    const url = kind === "dash"
+      ? `/api/dashboard?id=${currentSessionId}&budget=${budgetName}`
+      : `/api/tree?id=${currentSessionId}&budget=${budgetName}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    clearInterval(timer);
+    loadEl.hidden = true;
+    if (!resp.ok || !data.ok){
+      statusEl.textContent = data.error || `failed (HTTP ${resp.status})`;
+      btn.disabled = false;
+      return;
+    }
+    frame.src = kind === "dash" ? data.dashboard_url : data.tree_url;
+    frame.hidden = false;
+    btn.hidden = true;
+    if (kind === "tree"){
+      statusEl.textContent = data.optimal
+        ? `proved optimal, ${data.nodes_explored} nodes explored`
+        : `timed out at the budget, ${data.nodes_explored} nodes explored`
+          + (data.complete ? "" : " (a partial trace -- see the note above)");
+    }
+  } catch (err) {
+    clearInterval(timer);
+    loadEl.hidden = true;
+    statusEl.textContent = "request failed: " + err;
+    btn.disabled = false;
+  }
+}
+document.getElementById("runDash").addEventListener("click", () => runTab("dash"));
+document.getElementById("runTree").addEventListener("click", () => runTab("tree"));
+
+// ---------- initial paint ----------
+applyCamera();
+renderStopsList();
+resetDashTreeTabs();
+
+})();
+</script>
+</body>
+</html>
