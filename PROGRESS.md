@@ -22,15 +22,18 @@ The importer has since been run in anger on the Augerat A/B/P sets, which gave t
 its first external correctness evidence and settled §6's open question about GA versus
 ALNS; and an OSM extract has replaced the replay page's invented city with the real one,
 which is also how three geodesic defects in that page were found. Every view is documented
-in [docs/VISUALISATION.md](docs/VISUALISATION.md). P2's interactive 2D what-if map, the
-§7–8 service and most of P5 are not started.
+in [docs/VISUALISATION.md](docs/VISUALISATION.md). **§2.1's interactive planner is now in
+too** — `drp serve` starts a local server, place stops and a fleet in a browser instead of
+writing JSON, then solve and see the same three existing views embedded on the result. Its
+stretch goals (a real-geography toggle, drawing no-fly zones, a Solver Vision toggle on the
+embedded replay) are not built. The §7–8 service and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; interactive 2D what-if map ✗, 3D ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — no real-geography toggle, no-fly drawing or Solver Vision toggle yet), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
-| **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅; geocoding, OSM basemaps, REST service ✗ |
+| **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅; REST service ✗ |
 | **P5 Push it** | ✗ Not started |
 
 ### The six quick wins
@@ -823,6 +826,99 @@ and not the figure's dimensions; and regenerating a figure gives the same bytes.
 
 **390 tests**, and for the first time the JavaScript is among them.
 
+### §2.1 The interactive planner
+
+```bash
+drp serve
+```
+
+`drp serve` starts a small local HTTP server (stdlib `http.server`, bound to
+`127.0.0.1` only), opens a browser, and lets someone place delivery stops on a
+map, set the fleet, and solve -- without hand-writing an instance file first.
+It is the last significant unstarted piece of P2, and the only one of the six
+views that is a running program rather than a file.
+
+**The architecture is one rule: nothing about the existing views changes.**
+The browser only ever talks to this server; every solve happens here, in
+Python, through the same functions the CLI already uses --
+`drp.eval.runner.solve_one` for the first ALNS look, `solve_ga`/`solve_sa`/
+`solve_alns`/`solve_bnb` directly for the dashboard and tree tabs. Placing
+stops and clicking Solve builds an ordinary `drp-instance/v1` document
+client-side and posts it; the server loads it through `instance_from_dict`
+**unmodified**, so a malformed instance fails exactly the way a bad file on
+disk would. The three existing `render_*_html` functions are called
+**unmodified** too, each writing into a private subdirectory of the server's
+own temp output root, which the server then serves back as static files --
+deliberately, so as not to touch three modules with pinned, tested behaviour
+just to add a "return a string" mode nothing else needed. The new page,
+`drp/viz/web/planner_template.html`, lifts the flight replay's pan/zoom
+camera and click/drag hit-testing, trimmed to planar coordinates only and
+without pinch-zoom -- a copied-and-trimmed block, not a shared module, exactly
+as the roadmap allowed for this version.
+
+**The honest-countdown rule extends to a page that cannot show real
+progress.** The solve is genuinely synchronous -- Python does not return
+until the solver does -- so the loading screen cannot show what is happening
+*inside* the wait. What it shows instead is real, measured: elapsed time
+against the actual budget the request was sent with (`performance.now()`
+client-side), never a synthetic step. The first solve and the dashboard tab
+read `elapsed / budget` because those methods run to their budget; the tree
+tab reads "Ns elapsed, up to Mb" because B&B can finish early by proving
+optimality.
+
+**A crash this newly exposed, in code nobody touched.** Solving a single
+placed stop threw inside `drp.meta.alns`'s destroy step: it samples at least
+2 customers off the giant tour (§5.2's "absolute floor of 2"), an uncaught
+`ValueError` on a tour of length 1. No committed benchmark instance has ever
+been that small -- `drp generate --n 1` is not a thing anyone runs -- so
+nothing upstream had exercised it before the planner made a 1-stop instance
+reachable for the first time. Fixed at the new intake boundary
+(`drp.app.server.MIN_STOPS = 2`), not inside `alns.py`: every existing
+instance, of every size the project has ever benchmarked, is untouched.
+
+**A UX bug the screenshots caught that no test would have.** At 1440x960 the
+map and fleet form already fill most of the viewport, so the first working
+version left the newly revealed results tabs entirely below the fold --
+solving looked like nothing had happened until the page was scrolled by hand.
+Caught only by actually taking a screenshot after a solve, not by any
+assertion; fixed with one `scrollIntoView` (honouring
+`prefers-reduced-motion`, an instant jump instead of a smooth scroll).
+
+**Impossible inputs name the stop.** When a solve returns no solution at all
+-- a demand above the fleet's payload, or a stop no drone can reach on one
+battery charge even alone -- the server does not just report "no solution
+found". It scans the customers in the order they were placed and returns the
+*first* one that makes the instance unsolvable, by name and by reason, which
+the page then highlights on the map. Where a solution exists but some other
+check fails, the message comes straight off `feasibility_certificate`'s own
+`reason` -- the same certificate every `drp-solution/v1` file already
+carries, not a second, parallel explanation invented for the page.
+
+Measured, from an empty directory (`docs/VISUALISATION.md`'s own rule): an
+8-stop, 3-drone instance solves in 3.47 s wall clock against its 5 s budget
+(ALNS converges and returns before the budget expires, same as it does from
+the CLI), energy 734.58, and nothing is written into the launching directory
+-- every artefact lives under the server's own temp root.
+
+**Tests: 16 more.** `tests/test_server.py` (12 tests, fast) drives the server
+directly over HTTP: a valid instance solves, an oversized or undersized one
+is refused, an infeasible one names the stop, malformed JSON is a `400` and
+not a crash, `/results/` cannot be walked outside its own directory, and a
+concurrent solve is refused rather than queued. `tests/browser/
+test_page_planner.py` (4 tests) is the one browser-test file of four that
+drives a real running server instead of a `file://` page (a new
+session-scoped `planner_server` fixture in `tests/browser/conftest.py`):
+placing stops through to a rendered replay with the right customer count, the
+countdown never showing anything but real elapsed/budget, an infeasible
+placement surfacing its reason, and no horizontal overflow at 430 px. All 71
+browser tests (67 existing + 4 new) and the full fast suite stay green.
+
+**What this version deliberately does not do**, per the roadmap's own
+scoping of a first version: no real-geography toggle (planar 100x100 square
+only, not the Pontianak geodesic instance or its OSM basemap), no drawing
+no-fly zones, no Solver Vision toggle on the embedded replay. All three are
+the roadmap's named stretch goals, not started here.
+
 ---
 
 ---
@@ -1603,6 +1699,12 @@ Everything below was executed, not assumed.
 - Random giant tours Split into a *feasible* solution 0.4–0.6% of the time on the
   geographic instances against 14–99% on synthetic instances of the same size — the
   measurement behind the tightness finding, and the reason SA sits on its warm start.
+- **The planner** (§2.1): `drp serve`, run from an empty directory, solves a placed
+  instance and writes nothing into that directory. All 71 browser tests pass (67
+  existing + 4 new), the 12 new server tests pass, and the fast suite (404 tests here)
+  is unaffected. Checked by hand, not just by test, in a real headless-Chromium
+  screenshot at 1440 px and 430 px — which is what caught the results tabs opening
+  below the fold, since nothing in the automated suite would have.
 
 ### Bugs found and fixed while building this
 
@@ -1668,7 +1770,7 @@ Listed so nothing looks finished that isn't.
 
 | Roadmap | Item | Note |
 |---|---|---|
-| §2.1 | Interactive 2D map, drag-and-drop what-if | Needs a web front end |
+| §2.1 | Interactive 2D map, drag-and-drop what-if | ◐ Core landed (`drp serve` — see its section above): place stops, set the fleet, solve, see the result in the existing three views. Stretch not built: real-geography toggle, no-fly drawing, Solver Vision toggle on the embedded replay |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
 | §2.4 | — | **Done.** B&B tree explorer, Solver Vision and the GA/SA/ALNS convergence dashboard are all in |
 | §2.5 | TikZ export | Considered and rejected, with the reasoning written down in `generate_figures.py`. `pgf` is the cheaper thing to try first if the report ever needs it. SVG/PDF export and the colour-blind-safe theme are done |

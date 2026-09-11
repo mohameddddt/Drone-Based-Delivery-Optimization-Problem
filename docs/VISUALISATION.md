@@ -1,6 +1,6 @@
 # Visualising a run
 
-Five views, all reachable from the command line:
+Six views, all reachable from the command line:
 
 | View | Command | Output |
 |---|---|---|
@@ -9,8 +9,10 @@ Five views, all reachable from the command line:
 | Interactive flight replay | `drp show … --web flight.html` | one self-contained HTML file |
 | B&B search-tree explorer | `drp tree … -o tree.html` | one self-contained HTML file |
 | Convergence dashboard | `drp dash … -o dash.html` | one self-contained HTML file |
+| Interactive planner | `drp serve` | a local web app -- place stops, solve, see the other three |
 
-All five take `--theme`. The default, `safe`, is the colour-blind-safe theme;
+All six take `--theme` (the planner as a startup flag, the other five as a
+per-command one). The default, `safe`, is the colour-blind-safe theme;
 `--theme chart` is the original aeronautical-chart palette. See
 [Themes](#themes) below.
 
@@ -594,6 +596,132 @@ Raise `--max-samples` for a denser curve and a bigger file; lower it for the
 reverse.
 
 ---
+
+## 6. Interactive planner
+
+```bash
+drp serve
+```
+
+**For:** trying a what-if without hand-writing JSON first -- place stops on a
+map, set the fleet, solve, and see the other three views on the result,
+without touching a text editor.
+
+**Needs:** nothing on disk. It is a local web app, not a file-producing
+command: `drp serve` starts a small HTTP server on `127.0.0.1`, prints its
+URL, and opens it in a browser.
+
+```
+drp planner: http://127.0.0.1:8323/
+Ctrl+C to stop
+```
+
+Everything else in this document produces a *file*; this is the one view
+that is a running program. It writes nothing into the directory it was
+launched from -- every rendered result lives under a private temporary
+directory the server owns and serves back at `/results/<id>/...`, cleaned up
+when the process exits. `--no-browser` skips the automatic open (for
+scripted use); `--port` picks a fixed port instead of a free one; `--theme`
+works the same as everywhere else.
+
+### The architecture, briefly
+
+The browser only ever talks to this server. Every solver call happens here,
+in Python, exactly as `drp solve`/`drp tree`/`drp dash` call it -- nothing
+was ported to JavaScript, and the project keeps exactly one copy of every
+algorithm. Placing stops and clicking Solve builds an ordinary
+`drp-instance/v1` document in the browser and posts it; the server loads it
+through the same `instance_from_dict` a file on disk goes through, so a
+malformed instance fails exactly the same way. The result pages are the
+existing `render_playback_html` / `render_dashboard_html` / `render_tree_html`
+functions, called unmodified and embedded in the planner page as iframes --
+nothing about their pinned, tested behaviour changes because a browser is
+asking for them instead of a shell.
+
+### Controls
+
+**The map.** Reuses the flight replay's pan/zoom camera -- drag to pan, wheel
+to zoom, `+`/`−`/`RST` buttons, arrow keys, `0` and double-click to reset --
+trimmed to planar coordinates only and without pinch-zoom (this version does
+not build geodesic instances; see "What this version does not do" below).
+Click empty ground to add a stop; drag an existing stop to move it; click a
+stop to remove it. The sidebar lists every stop with its coordinates and an
+editable demand field, and the fleet card sets drone count, payload and
+battery.
+
+**Solve.** Runs ALNS at a fixed 5-second budget -- the "short default budget"
+the roadmap asks for -- and shows a loading screen with the real elapsed time
+against that budget while it waits. On success the flight replay appears
+embedded below, scrolled into view automatically.
+
+**The other two tabs** -- convergence dashboard and search tree -- start
+empty with a *Run* button and a quick/thorough budget switch (dashboard: 3 s
+or 8 s per method; tree: 10 s or 25 s), computed only when asked for, each
+with its own honest countdown. The tree tab shows the same "complete only for
+roughly 8 stops or fewer" caveat as `drp tree` itself before you wait on a
+timed-out one.
+
+### Reading the countdown
+
+**It is real elapsed time against the real budget the request was sent
+with, never a fabricated step.** The solve is genuinely synchronous -- the
+server does not return until the solver does -- so the page cannot show true
+progress *inside* the solve; what it can show, honestly, is how long the
+wait has actually been running, which is what it shows. The metaheuristic
+tabs (the first solve, and the dashboard) label this `elapsed / budget`
+because they run to their budget. The tree tab labels it "up to Ns elapsed"
+because B&B can finish early by proving optimality, and a plain countdown
+would imply a wait that might not happen.
+
+### Limits
+
+| | |
+|---|---|
+| Stops | 2 to 60 (`drp.app.server.MIN_STOPS`/`MAX_STOPS`) |
+| Drones | 1 to 12 (`MAX_DRONES`) |
+| Concurrency | one solve at a time -- a second request while one is running gets a `409`, not a queue |
+
+The lower stop bound is not a product choice: `drp.meta.alns`'s destroy step
+samples at least 2 customers off the giant tour (§5.2's "absolute floor of
+2"), which is an uncaught `ValueError` on a 1-customer tour. No committed
+benchmark instance had ever been that small, so nothing had exercised it
+until the planner made a 1-stop instance reachable for the first time --
+fixed at that new boundary rather than by touching the solver.
+
+**Impossible inputs get a message that names the stop, not a broken page.**
+When a solve returns no solution at all -- a stop's demand above the fleet's
+payload, or a stop no drone can reach on one battery charge even alone -- the
+server scans the customers in order and reports the first one that makes the
+instance unsolvable, by name, instead of a bare "no solution found". Where a
+solution does exist but fails some other way, the message comes straight off
+`feasibility_certificate`'s own `reason`, the same certificate every
+`drp-solution/v1` file carries.
+
+### What this version does not do
+
+Stated plainly, per the roadmap's own scoping: no real-geography toggle (the
+plane is a plain 100×100 square, not the Pontianak geodesic instance or its
+OSM basemap), no drawing no-fly zones, no Solver Vision toggle on the
+embedded replay, and no live progress streaming while a solve runs -- the
+brief rules the last one out deliberately; "watching the algorithm" is what
+the tree explorer and convergence dashboard are *for*, as a replay
+afterwards, not a thing to fake here. The camera code is a copied-and-trimmed
+version of the flight replay's, not a shared module -- pinch-zoom (touch) was
+trimmed along with the geodesic branch.
+
+### Testing it
+
+`tests/test_server.py` drives the server directly over HTTP (no browser): a
+valid instance solves, an oversized or undersized one is refused, an
+infeasible one names the stop, malformed JSON is a `400` and not a crash,
+`/results/` cannot be walked outside its own directory, and a concurrent
+solve is refused rather than queued silently.
+`tests/browser/test_page_planner.py` is the one browser-test file of four
+that drives a real running server instead of a `file://` page: placing stops
+through to a rendered replay with the right customer count, the countdown
+never showing anything but real elapsed/budget, an infeasible placement
+surfacing its reason, and no horizontal overflow at 430 px.
+
 ---
 
 ## Themes
@@ -721,13 +849,15 @@ limits — and every one of them passes against a page that throws on load and
 renders nothing. Every bug §2.2 and §2.4 record was found by driving the pages
 in a browser by hand.
 
-`tests/browser/` is that, automated. 67 tests across the three pages:
+`tests/browser/` is that, automated. 67 tests across the three pages, plus
+four more covering the planner (§2.1, added later — see its own section
+above), 71 in total:
 
 ```bash
 pip install -e ".[dev,browser]"
 playwright install chromium
 
-pytest -q -m browser        # ~37 s
+pytest -q -m browser        # ~50 s
 ```
 
 They skip, with a message, if Playwright or Chromium is missing — so a checkout
@@ -776,6 +906,12 @@ actually checks the reduced-motion claim this document makes.
 slow part, not the browser. The tree fixture runs `--no-warm-start` on purpose:
 without it the search often has no improvements, and then the button whose
 deadness is being tested has nothing to do.
+
+**The planner's tests navigate to a live server instead of a `file://` page**
+— the one structural difference, since it is the one view that is a running
+program rather than a file. `planner_server` (in `tests/browser/conftest.py`)
+starts a real `drp.app.server` instance on `127.0.0.1` with a free port,
+session-scoped like the other page fixtures.
 
 ### In CI
 
@@ -870,6 +1006,19 @@ looks identical.
 with nothing to converge, and `bnb` has its own view (`drp tree`); ask for either
 and it exits with a message rather than drawing an empty panel.
 
+### `drp serve`
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--host` | `127.0.0.1` | bind address; stays loopback, this is not for exposing on a network |
+| `--port` | `0` (a free port) | fixed TCP port instead |
+| `--no-browser` | off | do not open a browser window (scripted use) |
+| `--theme` | `safe` | colour theme for every page it renders; see [Themes](#themes) |
+
+Unlike the other five, `serve` takes no instance and no output path — the
+instance is whatever gets placed in the browser, and the output is a running
+server, not a file.
+
 ### Still Python-API only
 
 Two things the CLI does not reach, for want of a sensible flag rather than
@@ -931,6 +1080,15 @@ working correctly, not failing.
 
 **`dash.html` is large.** Lower `--max-samples`. At the default 3000 per method
 each traced method costs a few hundred KB.
+
+**The planner says "place at least 2 delivery stops".** Not a UI quirk: a
+1-stop instance crashes `drp.meta.alns`'s destroy step (it samples 2
+customers off the giant tour), so the server refuses it before it ever
+reaches a solver. Add a second stop.
+
+**The planner says a solve is already running.** One solve at a time, by
+design — the server holds a single lock across the first solve and the
+dashboard/tree tabs alike. Wait for the current one to finish.
 
 **A method shows `Improvements on the start: 0`.** That is a result, not a bug:
 the method never beat the solution it was handed. SA does this on larger
