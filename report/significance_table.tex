@@ -3,29 +3,29 @@
 \toprule
 Method & Avg.\ rank & Mean gap \%\ [95\% CI] \\
 \midrule
-Greedy construction & 4.83 & 19.38 [13.80, 24.77] \\
-Branch \& Bound & 3.33 & 10.36 [3.64, 17.55] \\
-Genetic Algorithm & 2.17 & 1.60 [0.34, 3.34] \\
-Simulated Annealing & 2.58 & 5.28 [1.42, 9.35] \\
-ALNS & 2.08 & 0.81 [0.25, 1.49] \\
+Greedy construction & 4.79 & 19.99 [14.11, 25.86] \\
+Branch \& Bound & 3.42 & 13.09 [5.25, 21.26] \\
+Genetic Algorithm & 2.46 & 1.44 [0.26, 3.25] \\
+Simulated Annealing & 1.96 & 0.51 [0.10, 1.08] \\
+ALNS & 2.38 & 0.92 [0.37, 1.55] \\
 \bottomrule
 \end{tabular}
 
-% Friedman $\chi^2$ = 31.74, $p$ = 2.157e-06, $n$ = 12 instances, Nemenyi CD (\alpha=0.05) = 1.761
+% Friedman $\chi^2$ = 32.80, $p$ = 1.315e-06, $n$ = 12 instances, Nemenyi CD (\alpha=0.05) = 1.761
 
 \begin{tabular}{llrrrl}
 \toprule
 A & B & $n$ & Statistic & $p$ & Result \\
 \midrule
-Greedy construction & Branch \& Bound & 12 & 0.0 & 0.007812 & Branch \& Bound better \\
+Greedy construction & Branch \& Bound & 12 & 0.0 & 0.01562 & Branch \& Bound better \\
 Greedy construction & Genetic Algorithm & 12 & 0.0 & 0.0004883 & Genetic Algorithm better \\
 Greedy construction & Simulated Annealing & 12 & 0.0 & 0.0004883 & Simulated Annealing better \\
 Greedy construction & ALNS & 12 & 0.0 & 0.0004883 & ALNS better \\
 Branch \& Bound & Genetic Algorithm & 12 & 0.0 & 0.03125 & Genetic Algorithm better \\
-Branch \& Bound & Simulated Annealing & 12 & 6.0 & 0.03125 & Simulated Annealing better \\
+Branch \& Bound & Simulated Annealing & 12 & 0.0 & 0.03125 & Simulated Annealing better \\
 Branch \& Bound & ALNS & 12 & 6.0 & 0.03125 & ALNS better \\
-Genetic Algorithm & Simulated Annealing & 12 & 15.0 & 0.1875 & no sig. difference \\
-Genetic Algorithm & ALNS & 12 & 23.0 & 0.5156 & no sig. difference \\
-Simulated Annealing & ALNS & 12 & 15.0 & 0.1406 & no sig. difference \\
+Genetic Algorithm & Simulated Annealing & 12 & 7.0 & 0.0625 & no sig. difference \\
+Genetic Algorithm & ALNS & 12 & 27.0 & 0.7656 & no sig. difference \\
+Simulated Annealing & ALNS & 12 & 15.0 & 0.1875 & no sig. difference \\
 \bottomrule
 \end{tabular}
