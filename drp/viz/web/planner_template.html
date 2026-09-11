@@ -705,10 +705,16 @@ async function solve(){
     setSolveStatus(
       `solved: energy ${data.energy.toFixed(1)}, ${data.drones_used} drone(s) used, `
       + `${data.wall_time.toFixed(2)}s`, false);
-    document.getElementById("tabsCard").hidden = false;
+    const tabsCard = document.getElementById("tabsCard");
+    tabsCard.hidden = false;
     document.getElementById("flightFrame").src = data.replay_url;
     resetDashTreeTabs();
     switchTab("flight");
+    // The results sit below the map+form on any screen shorter than both --
+    // without this a successful solve looks like nothing happened.
+    const reduceMotion = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    tabsCard.scrollIntoView({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
   } catch (err) {
     hideLoading(timer);
     setSolveStatus("request failed: " + err, true);
