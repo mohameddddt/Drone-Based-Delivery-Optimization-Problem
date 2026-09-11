@@ -1,6 +1,6 @@
 # Project progress
 
-Status of `main`, tracked against the project roadmap. Updated 2026-09-10.
+Status of `main`, tracked against the project roadmap. Updated 2026-09-11.
 
 ## Where this stands
 
@@ -198,14 +198,20 @@ end to end in `test_geometry.py`, along with a hand-computed detour around a uni
 ### §5.2 ALNS
 
 Destroy (random / worst / Shaw / whole-route) + repair (greedy / regret-2 / regret-3) with
-adaptive operator weights and annealing acceptance. It gives the best average energy of any
-method (1027.7 vs the GA's 1047.7 and SA's 1103.7) and wins outright on the three largest
-instances — while still recovering all five proven optima.
+adaptive operator weights and annealing acceptance. On the twelve synthetic instances it
+ties SA for the best average energy (1002.7 each, against the GA's 1015.3) while recovering
+every proven optimum.
 
-The roadmap expected it to "beat both current metaheuristics comfortably". *Comfortably* is
-too strong: the GA still edges it on `M1_n12_k4` and `L1_n20_k5`, so the two are close and
-the honest claim is that ALNS is the better of the pair on the largest instances. Both
-clearly beat SA at scale.
+The roadmap expected it to "beat both current metaheuristics comfortably". On this suite
+*comfortably* is too strong -- the three are statistically indistinguishable here
+(p ≥ 0.0625), and SA edges it on `L2_n25_k6`. The comfortable win is real but it is
+elsewhere: on **74 Augerat instances ALNS beats the GA at p = 2.0 × 10⁻⁸**, and on
+**168 Solomon instances it beats both at every size** (rank 1.14 of 4). Twelve instances
+were never going to settle it.
+
+*Superseded text, kept deliberately:* this section used to read "both clearly beat SA at
+scale", on 1103.7 against ALNS's 1027.7. That was a comparison against a broken cooling
+schedule (§5.4), not against simulated annealing.
 
 **It took three fixes to get right, and the first study run caught it.** The initial
 implementation found only 3 of 5 proven optima (1.20% average gap) while GA and SA found
@@ -1023,7 +1029,7 @@ infeasible by our checker: 0
 Exact agreement on all 74, and our feasibility checker accepts every one. That is the
 strongest correctness evidence in the project, and it is the only *external* evidence in
 it. `tests/test_cvrplib_published.py` keeps it (150 cases; it skips when the files are
-absent, which is why the suite reports 367 tests here and 217 in CI).
+absent, which is why the suite reports 399 tests here and 248 in CI).
 
 **A gap this exposed immediately.** Seven of the 74 load the fleet to 93–99% of its total
 capacity. The synthetic generator always leaves 41% slack (`payload_factor = 1.7`), so no
@@ -1060,6 +1066,12 @@ the gaps below are gaps to genuine optima, not to our own best-so-far.
 **No method ever returned below a published optimum, on any of the 74.** That is the
 project's central invariant, and until now it had only ever been checked against optima
 this repository proved itself.
+
+**One caveat on the SA row, added after the fact.** This run predates §5.4's
+cooling-schedule fix, so its SA column measures a search that never finished annealing --
+the same defect Solomon exposed. The ALNS-versus-GA result that settles §6's open question
+is unaffected (neither method changed), but any statement here about SA is stale, and
+re-running the 74 instances is about an hour of compute that has not been spent.
 
 Read the gaps honestly: 5 s per seed of Python against instances the literature attacks
 with tuned C++ for minutes. A 3.3% median for ALNS is a respectable showing for a
@@ -1481,7 +1493,11 @@ high-variance and a poor basis for a paired test. `run_experiments.py` now write
 `results/significance.json` and `report/significance_table.tex` alongside the existing
 tables, and `report/report.tex` §"Statistical significance" reads from it.
 
-Run on the committed group (`run_20260909_221514`, 12 instances, `alpha = 0.05`):
+Run on the then-committed group (`run_20260909_221514`, 12 instances, `alpha = 0.05`).
+**These figures predate §5.4's cooling-schedule fix**, so the SA row measures a search that
+never finished annealing; the current numbers are in "The committed run" above. The table
+is left as it was because the §6 machinery is what this section is about, and because the
+comparison between the two is the evidence for the fix:
 
 | Method | Avg. rank | Mean gap % [95% CI] |
 |---|---|---|
@@ -1634,7 +1650,8 @@ Listed so nothing looks finished that isn't.
 | §4.3–4.8 | Climb/hover energy, time windows, multi-trip, deconfliction, uncertainty, multi-objective | P5 |
 | §5.1 | Held–Karp / LP / column-generation bounds | Assignment-relaxation bound landed and moved the ceiling from `n ≈ 9` to `n ≈ 10`; a subtour-eliminating bound (Held–Karp 1-tree, LP relaxation) is the remaining, bigger step |
 | §5.2 | Tabu, VNS, memetic GA, ACO, island model | Only ALNS added |
-| §5.3–5.4 | Learned methods; Numba/Rust performance | Not started |
+| §5.3 | Learned methods | Not started |
+| §5.4 | Performance | ◐ The Split decoder went from `O(K n^3)` to `O(n^2)`, 10-20x, in pure Python, and a profile now names the next bottleneck (`_insertion_costs`, 85% of an ALNS run at `n = 100`). Numba/Rust still not started, and `n = 100` is still out of reach at a 5 s budget |
 | §6 | Performance profiles, ECDF, time-to-target/anytime curves, ablations, instance-hardness correlation | Wilcoxon/Friedman+Nemenyi significance testing and bootstrap CIs landed (`drp/eval/stats.py`); the profiling and ablation half of §6 is still not started |
 | §7–8 | REST API, Docker, simulator, docs site | Not started |
 
@@ -1683,7 +1700,22 @@ so immediately produced both its only external correctness evidence (74 publishe
 reproduced exactly) and its first statistically settled method comparison. What that run
 also showed is where the methods actually break: at 97%+ fleet utilisation every one of
 them freezes, because they all move customers between routes and almost no such move is
-feasible. Penalty-based infeasibility or ejection chains (§5.2) is now the best-evidenced
-next piece of solver work, ahead of more bound strengthening. A Held–Karp
-1-tree or the flow formulation's LP relaxation remains the path to a bigger jump past
-`n ≈ 10` whenever the exact side becomes the priority again.
+feasible.
+
+Then Solomon and the re-runs changed the order of what to do about it. Two of the three
+things that looked like search failures turned out to be **defects in how the search was
+run** rather than in how it searches: a decoder that cost `O(K n^3)` and a cooling schedule
+that ran on the iteration counter inside a time-bounded loop (§5.4). Fixing the second
+moved SA from the worst metaheuristic to the joint best and retracted a finding in this
+document. That is a warning about the third: before building penalty-based infeasibility or
+ejection chains, it is worth asking what else is being attributed to the landscape that
+belongs to the harness. The concrete candidates are named and measured -- `_insertion_costs`
+at 85% of an ALNS run, and an improving-move density of 0.025% on `RC101-50` where pure
+descent beats annealing outright.
+
+So the ranking now: make the search cheap enough to be worth analysing (§5.4's next
+bottleneck), then fix the neighbourhood or the acceptance (§5.2), then the bound. A
+Held–Karp 1-tree or the flow formulation's LP relaxation remains the path to a bigger jump
+past `n ≈ 10` whenever the exact side becomes the priority again -- though note that on
+today's hardware the 20-second budget no longer proves `n = 10` at all, which makes the
+ceiling a property of the machine as much as of the bound.
