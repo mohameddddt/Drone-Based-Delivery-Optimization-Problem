@@ -74,7 +74,7 @@ the *recipe* an instance is built from rather than the instance itself.
 
 ### §1.4 Tests
 
-**392 tests** with the third-party data present, 241 without it (the CVRPLIB checks skip when those files are absent, and the browser checks skip where no Chrome is installed). The ones the roadmap called for specifically:
+**399 tests** with the third-party data present, 248 without it (the CVRPLIB checks skip when those files are absent, and the browser checks skip where no Chrome is installed). The ones the roadmap called for specifically:
 
 | Roadmap item | Where | What it proves |
 |---|---|---|
@@ -91,6 +91,7 @@ the *recipe* an instance is built from rather than the instance itself.
 | **Geographic instances** | `test_geodata.py` | Reproducible from the untouched CSV and independent of row order; distances are haversine kilometres; every instance in the suite has a feasible solution. |
 | **Scenario recipes** | `test_scenario.py` | A named place resolves to that district's centroid, declared demands survive, a mistyped key is refused, and a synthetic scenario reproduces `generate_instance` exactly. |
 | **External validation** | `test_cvrplib_published.py` | 74 CVRPLIB optimal solutions, produced by other people with other code, all reproduce **exactly** under `total_energy` and all pass `is_feasible`. The only check in the project that is not self-referential. |
+| **Decoder equivalence** | `test_split_equivalence.py` | The rewritten Split returns the same value *and the same segmentation* as the implementation it replaced, kept verbatim as a reference — across battery-tight, forbidden-arc, zoned and geodesic instances. |
 | **The rendered page** | `test_web_headless.py` | The replay page loaded in real Chrome: layers present, geometry drawn, console clean -- and a deliberately sabotaged payload that the harness must catch. The first test of the page's JavaScript, which was previously uncovered. |
 | **Real geography** | `test_osm.py` | An OSM extract reads into the right layers, buildings and footways are dropped, the gazetteer prefers the larger place, and a basemap covers the instance it was cut for. |
 | **Mission export** | `test_qgc.py` | The waypoints are the solved route in the solved order; a planar instance cannot be exported without an anchor; the anchor's projection measures the right number of metres. |
@@ -405,8 +406,9 @@ Nothing downstream needed changing; only the units of the numbers did.
 
 `python run_experiments.py --suite geo --seeds 5 --meta-time 5 --bnb-time 20` — **the same
 protocol as the committed synthetic study**, so the two are read at the same strength.
-Stored in `results/geo_runs.db` as group `run_20260910_183127`; 204 runs, 1,013 s wall
-clock. The report's tables are untouched and still describe the synthetic suite — this is a
+Stored in `results/geo_runs.db` as group `run_20260911_002752`; 204 runs, 956 s wall
+clock. (It replaces `run_20260910_183127`, measured before §5.4's cooling-schedule fix and
+kept in the store because the difference between the two *is* the evidence for that fix.) The report's tables are untouched and still describe the synthetic suite — this is a
 companion result, and `run_experiments.py` refuses to write report tables for a non-default
 suite so it cannot become one by accident. Energies are in kilometre-scaled units and are
 **not** comparable to the synthetic table's numbers; only the shape of the result is.
@@ -420,19 +422,30 @@ suite so it cannot become one by accident. Energies are in kilometre-scaled unit
 | P5_n9_k3 | 9 | 3 | 20.40 | **18.60** | **18.60** | **18.60** | **18.60** | ✓ | 0.0% |
 | P6_n10_k3 | 10 | 3 | 21.10 | **18.00** | **18.00** | **18.00** | **18.00** | ✓ | 0.0% |
 | P7_n12_k4 | 12 | 4 | 23.00 | 23.00 | 23.00 | 23.00 | 23.00 | | 50.6% |
-| P8_n15_k4 | 15 | 4 | 54.50 | 48.40 | 47.00 | 51.20 | **46.70** | | 50.8% |
-| P9_n18_k5 | 18 | 5 | 29.00 | 29.00 | **25.70** | 28.80 | **25.70** | | 61.4% |
-| P10_n20_k5 | 20 | 5 | 42.40 | 42.40 | **39.50** | 42.40 | 39.70 | | 67.3% |
-| P11_n25_k6 | 25 | 6 | 33.60 | 33.60 | 30.50 | 33.00 | **29.70** | | 60.1% |
-| P12_n30_k6 | 30 | 6 | 58.20 | 58.20 | 49.20 | 53.50 | **48.10** | | 72.6% |
+| P8_n15_k4 | 15 | 4 | 54.50 | 48.40 | **46.70** | **46.70** | **46.70** | | 50.8% |
+| P9_n18_k5 | 18 | 5 | 29.00 | 29.00 | **25.70** | **25.70** | **25.70** | | 61.4% |
+| P10_n20_k5 | 20 | 5 | 42.40 | 42.40 | **39.50** | 39.60 | **39.50** | | 67.3% |
+| P11_n25_k6 | 25 | 6 | 33.60 | 33.60 | 30.00 | 30.50 | **29.70** | | 60.1% |
+| P12_n30_k6 | 30 | 6 | 58.20 | 58.20 | 47.40 | 48.90 | **46.80** | | 72.6% |
 
 | Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
 |---|---|---|---|---|
-| **ALNS** | **25.8** | 24.71 | 6/6 | 0.000% |
-| Genetic Algorithm | 25.9 | 23.02 | 6/6 | 0.000% |
-| Simulated Annealing | 27.4 | 25.00 | 6/6 | 0.000% |
-| Branch & Bound | 27.6 | 10.60 | 6/6 | 0.000% |
+| **ALNS** | **25.6** | 24.78 | 6/6 | 0.000% |
+| Genetic Algorithm | 25.7 | 18.44 | 6/6 | 0.000% |
+| Simulated Annealing | 25.9 | 24.59 | 6/6 | 0.000% |
+| Branch & Bound | 27.6 | 10.67 | 6/6 | 0.000% |
 | Greedy construction | 29.2 | 0.00 | 1/6 | 11.865% |
+
+| Method | Avg. rank | Mean gap % [95% CI] |
+|---|---|---|
+| ALNS | 1.92 | 0.11 [−0.03, 0.32] |
+| Genetic Algorithm | 2.62 | 0.66 [0.14, 1.26] |
+| Simulated Annealing | 2.62 | 1.55 [0.16, 3.33] |
+| Branch & Bound | 3.33 | 5.09 [1.23, 9.62] |
+| Greedy construction | 4.50 | 12.11 [7.81, 16.26] |
+
+Friedman: χ² = 29.11, p = 7.4 × 10⁻⁶, Nemenyi CD = 1.761. ALNS still beats the GA pairwise
+(p = 0.031); SA is now indistinguishable from either (p ≥ 0.0625).
 
 | Method | Avg. rank | Mean gap % [95% CI] |
 |---|---|---|
@@ -451,12 +464,16 @@ What the real geography changes, and what it does not:
   ceiling; the relaxation's missing subtour elimination is still what sets it.
 - **The method ordering is unchanged** — ALNS, GA, SA, timed-out B&B, greedy — and no
   metaheuristic ever returns below a proven optimum.
-- **Simulated annealing stalls on its warm start.** On `P10` it returns greedy's 42.40 on
-  **all five seeds**, and on `P9` on four of five, while GA and ALNS improve by 6–9% on
-  both. On the synthetic suite SA improved on every instance. The cause is below, and it is
-  not "SA is worse at clustered geography" — it is the instances.
+- **A retraction.** This section previously reported that simulated annealing stalls on
+  clustered geography — returning greedy's 42.40 on `P10` for all five seeds and on `P9`
+  for four of five — and attributed it to the tightness diagnosed below. **That was wrong.**
+  It was `drp.meta.sa`'s cooling schedule, which cooled per iteration inside a run bounded
+  by time and so never finished annealing (§5.4). With the schedule fixed and nothing else
+  changed, `P9` goes 28.80 → 25.70 and `P10` 42.40 → 39.60, both matching ALNS. SA is now
+  within 0.3 of the best method on average here. The tightness measurement below stands;
+  the conclusion drawn from it about SA does not.
 - **ALNS separates from GA here, but the test is at its resolution limit.** Paired Wilcoxon
-  gives `p = 0.031` against the synthetic suite's `p ≥ 0.14`. Read it carefully: the six
+  gives `p = 0.031` against the synthetic suite's `p ≥ 0.0625`. Read it carefully: the six
   proven instances tie *exactly*, so the test runs on **six non-tied pairs**, ALNS wins all
   six, and `2/2⁶ = 0.031` is the smallest p-value that sample size can produce — the test
   has no more resolution to give. The Friedman post-hoc, which corrects for comparing five
@@ -482,21 +499,21 @@ only 22 of 3,000 random tours Split feasibly at all, and the best of those score
 against greedy's 23.04 — the feasible set is a needle that construction finds and random
 search essentially never does.
 
-That explains everything above at once. SA's swap / 2-opt / or-move neighbourhood almost
-always steps outside the feasible region, and SA has no repair operator, so it sits on its
-warm start; the GA survives because Split re-segments every offspring, and ALNS because its
-repair operators insert feasibly by construction. On `P7` nothing can move at all.
+This explains `P7`, where nothing can move at all, and it is a real difference between
+these instances and the synthetic ones. **It does not explain the SA stall**, which is what
+this section originally claimed: with the cooling schedule fixed, SA improves on `P9`,
+`P10`, `P11` and `P12` at exactly the same feasible-region density. Two effects were
+present, the tightness was the visible one, and it got the credit for both.
 
-**The cause is the battery calibration, not the geography.** `calibrate_battery` derives
+**The tightness itself comes from the battery calibration, not from the geography.** `calibrate_battery` derives
 the budget from a nearest-neighbour tour over all customers. When stops are clustered
 around a depot, that reference tour is short relative to what a *partitioned fleet* must
 actually fly — every route repeats the long depot↔cluster hop — so the same
 `battery_factor = 0.9` yields a far tighter instance than it does on uniform points. The
 honest consequence: **this suite is harder than the synthetic one in a way that was not
-intended**, and the SA result above is a finding about instance tightness, not about
-clustered delivery geography as such. Recalibrating the geodesic suite (a fleet-partitioned
-reference tour rather than a single NN tour, or a larger factor for `geodesic=True`) is the
-obvious next step, and it would invalidate the run above, so it has not been done here.
+intended.** Recalibrating the geodesic suite (a fleet-partitioned reference tour rather
+than a single NN tour, or a larger factor for `geodesic=True`) is the obvious next step,
+and it would invalidate the run above, so it has not been done here.
 
 ### §3.3 CVRPLIB and Solomon import
 
@@ -622,6 +639,57 @@ instance. The standard remedy in the CVRP literature — allow temporary infeasi
 penalty, or use ejection chains — is not implemented here, and is now the best-evidenced
 next step for §5.2.
 
+
+#### The Solomon sets, and what a relaxation can and cannot tell you
+
+All 56 Solomon VRPTW files sit under `data/Solomon/` (ungitignored the same way, fetched
+from <https://www.sintef.no/projectweb/top/vrptw/solomon-benchmark/>), run at the three
+standard sizes: `n = 25`, `50` and `100`. That is **168 instances**, and they test something
+the Augerat sets cannot. Solomon splits into **C** (clustered, 17 files), **R** (uniformly
+random, 23) and **RC** (mixed, 16) — a controlled comparison of *geography* — and at 37–74%
+fleet utilisation they are not tight, so they isolate that variable from the capacity
+pressure that dominates Augerat.
+
+No `.sol` files ship with them, so there are no published optima quoted here. The check
+this suite affords is different and it is a one-way one: **dropping the time windows makes
+our problem a relaxation of theirs**, so a solution found here may legitimately beat a
+published VRPTW distance, and can never be compared to it as a gap. That is stated plainly
+rather than quietly ignored, and it is why the tables below are all relative to greedy.
+
+Groups `run_20260911_004351`, `run_20260911_012614` and `run_20260911_020639` in
+`results/solomon_runs.db`; greedy, GA, SA and ALNS, 3 seeds, 5 s each. B&B is not run: every
+instance here is at least `n = 25` and the exact ceiling is `n ≈ 10`.
+
+Median improvement over the Clarke-Wright warm start:
+
+| | `n = 25` | | | `n = 50` | | | `n = 100` | | |
+|---|---|---|---|---|---|---|---|---|---|
+| | GA | SA | ALNS | GA | SA | ALNS | GA | SA | ALNS |
+| **C** clustered | 3.83% | 4.18% | 3.83% | 0.70% | 0.00% | 1.48% | 0.00% | 0.00% | 0.00% |
+| **R** random | 2.30% | 6.10% | **7.27%** | 2.68% | 0.00% | **12.03%** | 0.00% | 0.00% | 0.00% |
+| **RC** mixed | 3.75% | 1.33% | 4.16% | 1.20% | 0.00% | 3.00% | 0.00% | 0.00% | **1.58%** |
+
+Three things fall out of it.
+
+- **ALNS wins decisively and at every size** — `p ≤ 1.7 × 10⁻⁸` against both the GA and SA
+  at `n = 25` and `n = 50`, with an average rank of 1.14 out of 4. Its mean gap to the best
+  solution found is 0.05% at `n = 25` and 0.69% at `n = 50`, against the GA's 2.58% and
+  7.26%. On 168 instances, across three geographies, this is the clearest result the
+  project has about its own methods.
+- **Clustered geography leaves less room.** ALNS improves the warm start by a median 12.03%
+  on random instances at `n = 50` and 1.48% on clustered ones. Clarke-Wright savings is
+  strong when the clusters are obvious, so there is simply less to win — which is the
+  honest reading of the Pontianak result too, where the same suite is clustered.
+- **Everything hits a wall, and the wall is arithmetic.** At `n = 100` the GA and SA return
+  the warm start unchanged on every single instance, and ALNS moves only on RC. §5.4 below
+  measures why: ALNS gets 78 iterations in five seconds at that size. This suite is where
+  the scaling problem stopped being a footnote.
+
+A fourth, recorded because it is uncomfortable: the first Solomon run was thrown away.
+It had SA returning greedy's value on all 56 instances at `n = 25` and `n = 50`, which
+looked like a finding and was a defect (§5.4). Re-running it after the fix moved SA from
+"never improves" to a 2.95% mean gap at `n = 25` — and left it at *exactly* greedy on every
+instance at `n = 50` and above, which is now a real measurement rather than a broken one.
 
 ### §3.5 QGroundControl mission export
 
@@ -789,6 +857,52 @@ improve on a Clarke-Wright warm start. **That is the honest state of the scaling
 is why the exact/heuristic crossover story in this document stops mattering somewhere
 around `n = 50` -- past that the metaheuristics are not searching, they are barely moving.
 
+### §5.4 Annealing on the clock, not on the iteration counter
+
+The Solomon run exposed a second defect, and it had been hiding behind the first. SA
+returned its Clarke-Wright warm start on **every one of 56 instances** at `n = 25` and
+`n = 50` — 86% of moves accepted, 5,000 iterations, not one improvement. That is exactly
+what a search trapped by a tight feasible region looks like, which is what this document
+had already concluded about two of the Pontianak instances.
+
+It was neither trapped nor tight. `gamma = 0.9995` cools **per iteration**, while every run
+here is bounded by **time**. Over the ~5,000 iterations that fit in five seconds the
+temperature falls by 12x — so the search never leaves its random-walk phase, accepts
+almost everything, exploits nothing, and hands back what it started with. How much
+annealing actually happened depended on `n`, on `K`, on the machine, and (since the
+rewrite above) on how fast Split is.
+
+`gamma` is now re-derived every 200 iterations from the measured iteration rate, to reach
+`1e-3` of the starting temperature exactly as the budget expires. The effect on the study
+of record is the largest single move in this document: **SA from 1084.4 average energy to
+1002.7**, from last of the three metaheuristics to the best average rank of any method.
+
+**What the fix does not do** is make SA good on Solomon at `n ≥ 50`, and the reason is
+worth recording because it is not the schedule. Sampling 4,000 random neighbours of the
+warm start finds **one** improving move on `RC101-50` and seven on `C101-25` — an
+improving-move density of 0.025% to 0.2%. Pure descent from the same start reaches 518.50
+and 188.05, both *better* than annealing achieves, because on a landscape that sparse the
+uphill moves SA accepts cost more than its diversification gains. That is a property of the
+giant-tour neighbourhood, and it is the next thing to attack in §5.2.
+
+### §5.4 The machine is part of the measurement
+
+Re-running the study of record produced a worse B&B column — 5 of 12 proved instead of 6,
+with `S6_n10_k3` timing out where it used to finish in 13.8 s. B&B is deterministic, so
+this looked like a regression from this branch.
+
+It was not, and the evidence is threefold: `S5_n9_k3` explored **exactly** the same 35,654
+nodes in both runs; the suite's throughput fell from 16,440 nodes/s to 5,606; and the
+September commit checked out into a worktree is *equally* slow today (2.42 s against the
+current code's 2.36 s on the same instance, same node count). The machine is roughly twice
+as slow as it was, and noisy — the same measurement repeated three times in one session
+spans 2.4 to 3.4 s.
+
+Every number this project reports is time-boxed, so that lands directly in the results and
+nothing in the log said so. `run_experiments.py` now measures a fixed deterministic
+workload before each study and prints it (currently ~3,300 Split evaluations/s), so two
+runs can be compared honestly or not compared at all.
+
 **A consequence the report has to acknowledge.** Every result in the committed study is
 time-boxed, so a faster decoder changes what those five seconds buy. The study of record
 (`run_20260909_221514`) was produced by the slower implementation, and re-running it today
@@ -801,10 +915,20 @@ unaffected, being deterministic, which is why every pinned test still passes.
 ## The committed run
 
 12 instances, 5 seeds per metaheuristic, 20 s for B&B and 5 s per metaheuristic seed.
-Wall clock 942 s. Stored in `results/runs.db` as group `run_20260909_221514` (superseding
-`run_20260909_211828`, re-run after §5.1's assignment-relaxation bound landed — only the
-B&B column moves; GA/SA/ALNS/Greedy differ from the previous run only by the ordinary
-seed-vs-wall-clock noise of a time-boxed search).
+Wall clock 1,012 s. Stored in `results/runs.db` as group `run_20260911_001011`, superseding
+`run_20260909_221514`. **Three things changed at once between those two runs, and the
+table cannot be read without all three.**
+
+1. `drp.meta.split` became 10-20x faster (§5.4 below), so five seconds buys roughly ten
+   times as many candidate evaluations.
+2. `drp.meta.sa`'s cooling schedule was fixed to complete within the time budget rather
+   than within a fixed iteration count (§5.4 below). This is why SA moves so far.
+3. **The machine got about twice as slow.** B&B managed 16,440 nodes/s in September and
+   5,606 in this run, with byte-identical code -- `S5_n9_k3` explored exactly the same
+   35,654 nodes both times, in 1.2 s then and 2.4-3.8 s now. Checked out at the September
+   commit, the old code is just as slow today (2.42 s against the new code's 2.36 s, same
+   node count), so this is the hardware, not the branch. `run_experiments.py` now prints a
+   calibration figure with every study so this is never again invisible.
 
 | Instance | n | K | Greedy | B&B | GA | SA | ALNS | Proved? |
 |---|---|---|---|---|---|---|---|---|
@@ -813,53 +937,66 @@ seed-vs-wall-clock noise of a time-boxed search).
 | S3_n7_k2 | 7 | 3 | 639.3 | **568.5** | **568.5** | **568.5** | **568.5** | ✓ |
 | S4_n8_k3 | 8 | 3 | 691.5 | **670.5** | **670.5** | **670.5** | **670.5** | ✓ |
 | S5_n9_k3 | 9 | 3 | 740.3 | **593.7** | **593.7** | **593.7** | **593.7** | ✓ |
-| S6_n10_k3 | 10 | 3 | 925.1 | **839.5** | **839.5** | **839.5** | **839.5** | ✓ |
-| M1_n12_k4 | 12 | 4 | 1035.7 | 984.3 | **922.1** | **922.1** | 930.0 | |
-| M2_n15_k4 | 15 | 4 | 1316.1 | 1100.3 | **1011.2** | **1011.2** | **1011.2** | |
-| M3_n18_k5 | 18 | 5 | 1564.5 | 1564.5 | 1292.5 | 1461.6 | **1281.9** | |
-| L1_n20_k5 | 20 | 5 | 1830.5 | 1830.5 | **1428.3** | 1660.0 | 1451.1 | |
-| L2_n25_k6 | 25 | 6 | 2122.1 | 2122.1 | 1702.4 | 1923.5 | **1686.2** | |
-| L3_n30_k6 | 30 | 6 | 2727.7 | 2727.7 | 2183.8 | 2317.0 | **2055.7** | |
+| S6_n10_k3 | 10 | 3 | 925.1 | 839.5 | 839.5 | 839.5 | 839.5 | — (see below) |
+| M1_n12_k4 | 12 | 4 | 1035.7 | 1021.8 | **922.1** | **922.1** | 930.0 | |
+| M2_n15_k4 | 15 | 4 | 1316.1 | 1316.1 | **1011.2** | **1011.2** | **1011.2** | |
+| M3_n18_k5 | 18 | 5 | 1564.5 | 1564.5 | 1283.9 | **1281.9** | **1281.9** | |
+| L1_n20_k5 | 20 | 5 | 1830.5 | 1830.5 | **1428.3** | **1428.3** | 1448.6 | |
+| L2_n25_k6 | 25 | 6 | 2122.1 | 2122.1 | 1657.0 | **1645.4** | 1651.9 | |
+| L3_n30_k6 | 30 | 6 | 2727.7 | 2727.7 | 2163.4 | 2026.1 | **1991.8** | |
 
 | Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
 |---|---|---|---|---|
-| **ALNS** | **1011.1** | 22.87 | 6/6 | 0.000% |
-| Genetic Algorithm | 1021.5 | 20.34 | 6/6 | 0.000% |
-| Simulated Annealing | 1084.4 | 23.81 | 6/6 | 0.000% |
-| Branch & Bound | 1170.5 | 11.28 | 6/6 | 0.000% |
-| Greedy construction | 1232.1 | 0.00 | 0/6 | 13.550% |
+| **ALNS** | **1002.7** | 24.96 | 5/5 | 0.000% |
+| **Simulated Annealing** | **1002.7** | 25.00 | 5/5 | 0.000% |
+| Genetic Algorithm | 1015.3 | 21.16 | 5/5 | 0.000% |
+| Branch & Bound | 1191.7 | 12.08 | 5/5 | 0.000% |
+| Greedy construction | 1232.1 | 0.00 | 0/5 | 14.220% |
 
-Findings, all consistent with theory:
+| Method | Avg. rank | Mean gap % [95% CI] |
+|---|---|---|
+| Simulated Annealing | 1.96 | 0.51 [0.10, 1.08] |
+| ALNS | 2.38 | 0.92 [0.37, 1.55] |
+| Genetic Algorithm | 2.46 | 1.44 [0.26, 3.25] |
+| Branch & Bound | 3.42 | 13.09 [5.25, 21.26] |
+| Greedy construction | 4.79 | 19.99 [14.11, 25.86] |
 
-- Branch & Bound **proves optimality on `n = 5…10`** and times out from `n = 12`, placing
-  the exact/heuristic crossover at about `n = 10` — one instance further than the previous
-  run, and the direct payoff of §5.1's stronger bound: `S6_n10_k3` needed 1.5M nodes and
-  never finished in 20 s under the old bound (see §5.1 above); it now proves optimal in
-  429K nodes and 13.8 s.
-- **All three metaheuristics find every proven optimum**, at 0.000% gap. Greedy finds none,
-  averaging 13.6% above.
-- **No metaheuristic ever returns below a proven optimum.** The project's main correctness
-  check.
-- **ALNS has the best average energy** and wins outright on `M3`, `L2` and `L3`. GA ties or
-  edges it on `M1`, `M2` and `L1`, so the two are close — close enough that, as the
-  significance section below shows, twelve instances cannot distinguish them statistically.
-  Both clearly beat SA at scale.
-- From `n = 18` up, B&B's value still equals greedy's exactly — it is returning its
-  warm-start incumbent, having proved nothing. At `n = 12` and `15` it no longer does: the
-  stronger bound's tighter node ordering finds a real incumbent (`M1`: 984.3 vs greedy's
-  1035.7; `M2`: 1100.3 vs 1316.1) even where it can't yet prove it optimal.
+Friedman: χ² = 32.80, p = 1.32 × 10⁻⁶, Nemenyi CD (α = 0.05) = 1.761.
+
+Findings:
+
+- **Simulated annealing is no longer the weak metaheuristic.** It was 1084.4 average and
+  last of the three; it is now tied with ALNS at 1002.7 and has the best average rank of
+  any method here. On `L3_n30_k6` it went 2317.0 → 2026.1 and on `M3_n18_k5` 1461.6 →
+  1281.9. Nothing about the algorithm changed except *when* it cools. It is worth being
+  blunt about what that means: every SA number this project published before today was
+  produced by a search that never finished annealing, and the comparisons that rested on
+  them -- "both clearly beat SA at scale" -- were comparing against a defect.
+- **GA, SA and ALNS remain statistically indistinguishable on these twelve** (p ≥ 0.0625
+  pairwise), exactly as before. The separation established on 74 Augerat instances
+  (ALNS > GA, p = 2.0 × 10⁻⁸) is unaffected by any of this, being a different and much
+  larger sample -- though it too was measured with the old SA, so the SA comparisons
+  there are stale in the same way the old ones here were.
+- **B&B proves `n = 5…9` in this run rather than `n = 5…10`, and that is the slow machine
+  showing.** At 20 s it now gets 192,294 nodes into `S6_n10_k3`, where September's faster
+  hardware reached the 428,850 needed to close it. The bound did not weaken and the search
+  did not change; the budget simply buys less. `M1_n12_k4`'s incumbent moved the same way,
+  1021.8 against 984.3, for the same reason.
+- **Nothing returns below a proven optimum**, on any instance, by any method. The invariant
+  holds through all of it.
 
 ### What the dual bound actually says
 
 | Instance | Incumbent | Dual bound | Unproved interval |
 |---|---|---|---|
-| S1–S6 (`n ≤ 10`) | = optimum | = optimum | **0.0%** — proved |
-| M1_n12_k4 | 984.3 | 412.6 | 58.1% |
-| M2_n15_k4 | 1100.3 | 522.4 | 52.5% |
+| S1–S5 (`n ≤ 9`) | = optimum | = optimum | **0.0%** — proved |
+| S6_n10_k3 | 839.5 | 385.3 | 54.1% — *proved in September on faster hardware* |
+| M1_n12_k4 | 1021.8 | 412.8 | 59.6% |
+| M2_n15_k4 | 1316.1 | 522.5 | 60.3% |
 | M3_n18_k5 | 1564.5 | 567.5 | 63.7% |
-| L1_n20_k5 | 1830.5 | 636.1 | 65.3% |
-| L2_n25_k6 | 2122.1 | 564.6 | 73.4% |
-| L3_n30_k6 | 2727.7 | 743.4 | 72.7% |
+| L1_n20_k5 | 1830.5 | 637.0 | 65.2% |
+| L2_n25_k6 | 2122.1 | 564.5 | 73.4% |
+| L3_n30_k6 | 2727.7 | 741.9 | 72.8% |
 
 Tighter than the column-minimum bound's 66.6–89.2% across the same instances (previous
 table, now superseded), but still **wide, and that is the honest finding.** The
@@ -924,7 +1061,7 @@ curves, anytime curves, ablation studies and instance-hardness correlation are s
 
 Everything below was executed, not assumed.
 
-- **392 tests pass** — 375 fast (~52 s), 17 slow (~50 s). Without the third-party benchmark files that is 241; those checks skip rather than fail.
+- **399 tests pass** — 382 fast (~87 s), 17 slow (~59 s). Without the third-party benchmark files that is 248; those checks skip rather than fail.
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
 - The lower bound never exceeds the true optimum, at every time limit tested.
@@ -947,6 +1084,10 @@ Everything below was executed, not assumed.
 - The visibility distances of all six zone instances are unchanged, to floating-point
   equality, by this branch's `segment_blocked` fix.
 - The CLI runs build → solve → export --format qgc, and import → solve, end to end.
+- The rewritten Split decoder agrees with its predecessor on value and segmentation, and
+  is 10-20x faster; the brute-force optimality and notebook-parity tests both still pass.
+- B&B explores byte-identical node counts before and after every change on this branch,
+  which is how the machine slowdown was separated from the code.
 - The replay page loads in real Chrome and draws its layers, with a clean console — and the
   harness that checks this is itself checked, by feeding it a deliberately broken page.
 - A QGroundControl mission produced by this pipeline loads in QGroundControl.
@@ -979,6 +1120,12 @@ Everything below was executed, not assumed.
   generator never produces a tight instance; seven of the 74 Augerat instances do. Fixed
   with a bin-packing fallback that fires only where the existing constructions return
   nothing, so no committed number moves.
+- **Simulated annealing never finished annealing.** Its cooling schedule ran on the
+  iteration counter while the search ran on the clock, so on any instance where few
+  iterations fit in the budget it random-walked from start to finish and returned its warm
+  start. Present since SA was written; invisible because the synthetic suite's greedy start
+  is poor enough that even a random walk beats it. Found by Solomon, where it does not.
+  Fixing it moved SA from the worst metaheuristic to the joint best.
 - **The replay page drew geodesic instances sideways**, with latitude along x and north
   pointing right, and measured their flights in degrees. Invisible for as long as the page
   had only synthetic instances to draw, which was until this branch created geodesic ones.

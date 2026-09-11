@@ -10,7 +10,7 @@ Ships with two mathematical formulations, an NP-hardness proof, an exact Branch 
 with an anytime dual bound, three metaheuristics, visibility-graph routing around polygonal
 no-fly zones, a reproducible benchmark generator, instances built from a real last-mile
 coordinate dataset, CVRPLIB/Solomon import, QGroundControl mission export, an experiment
-harness, and 392 tests -- including brute-force verification of the pieces everything
+harness, and 399 tests -- including brute-force verification of the pieces everything
 else rests on, 74 published CVRPLIB optima reproduced exactly, and the replay page loaded
 in a real browser.
 
@@ -135,7 +135,7 @@ drp/
   eval/        runner · store (SQLite) · metrics · stats (significance)
   viz/         static · animate · webdata · webplayback · basemap (real maps)
   app/         cli
-tests/         392 tests, incl. brute-force, published-optimum and browser checks
+tests/         399 tests, incl. brute-force, published-optimum and browser checks
 report/        report.tex + generated tables
 results/       runs.db, CSVs, figures
 data/source/   the supplied last-mile coordinate dataset
@@ -213,22 +213,27 @@ metaheuristic seed. Full per-instance table in [PROGRESS.md](PROGRESS.md).
 
 | Method | Avg. energy | Avg. time (s) | Optima found | Avg. gap on proven |
 |---|---|---|---|---|
-| **ALNS** | **1027.7** | 24.96 | 5/5 | 0.000% |
-| Genetic Algorithm | 1047.7 | 24.11 | 5/5 | 0.000% |
-| Simulated Annealing | 1103.7 | 25.00 | 5/5 | 0.000% |
-| Branch & Bound | 1191.7 | 12.07 | 5/5 | 0.000% |
+| **ALNS** | **1002.7** | 24.96 | 5/5 | 0.000% |
+| **Simulated Annealing** | **1002.7** | 25.00 | 5/5 | 0.000% |
+| Genetic Algorithm | 1015.3 | 21.16 | 5/5 | 0.000% |
+| Branch & Bound | 1191.7 | 12.08 | 5/5 | 0.000% |
 | Greedy construction | 1232.1 | 0.00 | 0/5 | 14.220% |
 
-- Branch & Bound **proves optimality on `n = 5…9`** and times out from `n = 10`, locating
-  the exact/heuristic crossover at about `n = 9`.
+- Branch & Bound **proves optimality on `n = 5…9`** in this run and times out from
+  `n = 10`. It proved `n = 10` too on faster hardware in September, with identical node
+  counts — every result here is time-boxed, so the machine is part of the measurement, and
+  `run_experiments.py` now prints a calibration figure for exactly that reason.
 - **All three metaheuristics find every proven optimum**, and none ever returns below one.
   That is the project's main correctness check: a heuristic beating a true optimum would
   mean the objective or the exact method is wrong.
-- **ALNS has the best average energy**, winning outright on the three largest instances. GA
-  edges it on two mid-size ones, so they are close; both clearly beat SA at scale.
+- **ALNS and SA tie for best average energy** on these twelve, and the three
+  metaheuristics are statistically indistinguishable here (p ≥ 0.0625). On 74 CVRPLIB
+  instances they are not: ALNS beats the GA at p = 2 × 10⁻⁸.
+- SA was the weakest of the three until its cooling schedule was fixed to complete within
+  the time budget rather than a fixed iteration count — see [PROGRESS.md](PROGRESS.md) §5.4.
 - From `n = 15` up, B&B's *value* equals greedy's: it is returning its warm-start
   incumbent. It is not optimising badly, it has not finished — and the dual bound now says
-  by how much (66–89% of the interval unproved, because the bound is weak).
+  by how much (54–73% of the interval unproved, because the bound is weak).
 
 Every number lives in `results/runs.db`, one row per run tagged with the git SHA that
 produced it. The report `\input`s generated tables; nothing is typed by hand.
@@ -240,7 +245,7 @@ pytest -q                  # everything (~2.5 min)
 pytest -q -m "not slow"    # the fast subset CI runs on every push (~50 s)
 ```
 
-392 tests with the third-party data present, 241 without it. The ones that matter most:
+399 tests with the third-party data present, 248 without it. The ones that matter most:
 
 | Test | What it proves |
 |---|---|
