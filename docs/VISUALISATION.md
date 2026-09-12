@@ -645,14 +645,29 @@ to zoom, `+`/`−`/`RST` buttons, arrow keys, `0` and double-click to reset --
 trimmed to planar coordinates only and without pinch-zoom (this version does
 not build geodesic instances; see "What this version does not do" below).
 Click empty ground to add a stop; drag an existing stop to move it; click a
-stop to remove it. The sidebar lists every stop with its coordinates and an
-editable demand field, and the fleet card sets drone count, payload and
-battery.
+stop to remove it; **drag the depot itself to relocate the starting
+location** -- it is not fixed. The sidebar lists every stop with its
+coordinates and an editable demand field, and the fleet card sets drone
+count, payload and battery.
+
+It is not a blank grid: the ground layer draws the same invented aeronautical
+chart the flight replay draws for a synthetic instance -- a river, a radial
+road network centred on the depot, built-up blobs, parks and district names
+-- ported from `playback_template.html` and reseeded from the same two things
+that change here (how many stops there are, and where the depot sits), so the
+placement map and the solved replay read as one city rather than two
+different-looking tools. It regenerates when a stop is added or removed, and
+once when a depot drag releases -- not on every pointer movement, since
+rebuilding a few hundred SVG nodes on every frame of a drag would make the
+drag itself feel laggy.
 
 **Solve.** Runs ALNS at a fixed 5-second budget -- the "short default budget"
 the roadmap asks for -- and shows a loading screen with the real elapsed time
 against that budget while it waits. On success the flight replay appears
-embedded below, scrolled into view automatically.
+embedded below, scrolled into view automatically, sized to its own actual
+content height rather than boxed into a fixed panel with a second,
+inner scrollbar -- it is a full page, built for a whole browser tab, and
+looks like one here too. The dashboard and tree tabs do the same once run.
 
 **The other two tabs** -- convergence dashboard and search tree -- start
 empty with a *Run* button and a quick/thorough budget switch (dashboard: 3 s
@@ -699,15 +714,30 @@ solution does exist but fails some other way, the message comes straight off
 
 ### What this version does not do
 
-Stated plainly, per the roadmap's own scoping: no real-geography toggle (the
-plane is a plain 100×100 square, not the Pontianak geodesic instance or its
-OSM basemap), no drawing no-fly zones, no Solver Vision toggle on the
-embedded replay, and no live progress streaming while a solve runs -- the
-brief rules the last one out deliberately; "watching the algorithm" is what
-the tree explorer and convergence dashboard are *for*, as a replay
-afterwards, not a thing to fake here. The camera code is a copied-and-trimmed
-version of the flight replay's, not a shared module -- pinch-zoom (touch) was
-trimmed along with the geodesic branch.
+Stated plainly, per the roadmap's own scoping: no real-geography toggle --
+the plane is a plain 100×100 square with an *invented* city drawn on it, the
+same way a synthetic instance gets one in the flight replay, not the
+Pontianak geodesic instance or its OSM basemap -- no drawing no-fly zones, no
+Solver Vision toggle on the embedded replay, and no live progress streaming
+while a solve runs. The brief rules the last one out deliberately; "watching
+the algorithm" is what the tree explorer and convergence dashboard are *for*,
+as a replay afterwards, not a thing to fake here. The camera code is a
+copied-and-trimmed version of the flight replay's, not a shared module --
+pinch-zoom (touch) was trimmed along with the geodesic branch.
+
+**A found-by-screenshot bug, worth recording because the fix generalises.**
+The first working version of the basemap port left every district-name label
+positioned at the SVG origin instead of its collision-checked spot -- the
+world-space *plotting* code was ported faithfully, but the actual
+`x`/`y` assignment lives in a separate step in the flight replay (a `transform`
+rewritten per zoom, for counter-scaling), which was dropped rather than
+adapted. The result was several place names stacked on top of each other,
+reading as garbled overlapping text -- invisible in the automated tests
+(nothing asserted on label position) and obvious in one screenshot. Fixed by
+setting `x`/`y` directly at creation, which this page can do because its
+labels are terrain and do not need to hold a constant screen size the way the
+replay's do. `tests/browser/test_page_planner.py` now asserts every ground
+label has a distinct position.
 
 ### Testing it
 
@@ -716,11 +746,15 @@ valid instance solves, an oversized or undersized one is refused, an
 infeasible one names the stop, malformed JSON is a `400` and not a crash,
 `/results/` cannot be walked outside its own directory, and a concurrent
 solve is refused rather than queued silently.
-`tests/browser/test_page_planner.py` is the one browser-test file of four
-that drives a real running server instead of a `file://` page: placing stops
-through to a rendered replay with the right customer count, the countdown
-never showing anything but real elapsed/budget, an infeasible placement
-surfacing its reason, and no horizontal overflow at 430 px.
+`tests/browser/test_page_planner.py` (7 tests) is the one browser-test file
+of four that drives a real running server instead of a `file://` page:
+placing stops through to a rendered replay with the right customer count, the
+countdown never showing anything but real elapsed/budget, an infeasible
+placement surfacing its reason, no horizontal overflow at 430 px, the ground
+layer actually drawing terrain with every label at a distinct position,
+dragging the depot changing what gets solved, and the embedded replay
+growing to its real content height rather than carrying its own internal
+scrollbar.
 
 ---
 
@@ -850,8 +884,8 @@ renders nothing. Every bug §2.2 and §2.4 record was found by driving the pages
 in a browser by hand.
 
 `tests/browser/` is that, automated. 67 tests across the three pages, plus
-four more covering the planner (§2.1, added later — see its own section
-above), 71 in total:
+seven more covering the planner (§2.1, added later — see its own section
+above), 74 in total:
 
 ```bash
 pip install -e ".[dev,browser]"

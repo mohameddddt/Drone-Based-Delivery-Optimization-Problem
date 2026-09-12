@@ -282,8 +282,8 @@ chromium`; without them they skip with a message rather than passing silently. L
 the CVRPLIB/Solomon tests skip without the third-party benchmark data, which is not
 committed.
 
-**624 tests**, plus 16 more from the interactive planner (`drp serve`, roadmap §2.1) --
-12 for the server's request handling in `test_server.py` and 4 more in `tests/browser/`
+**624 tests**, plus 19 more from the interactive planner (`drp serve`, roadmap §2.1) --
+12 for the server's request handling in `test_server.py` and 7 more in `tests/browser/`
 -- with everything present. The ones that matter most:
 
 | Test | What it proves |
