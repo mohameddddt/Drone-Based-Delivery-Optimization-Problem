@@ -232,6 +232,45 @@ def test_switching_the_axis_redraws_the_chart(open_page, dash_page):
     h.assert_clean()
 
 
+def test_step_axis_does_not_flatten_shorter_method_detail_charts(
+        open_page, dash_page):
+    h = open_page(dash_page, READY)
+    h.page.get_by_role("button", name="steps", exact=True).click()
+    occupancy = h.page.evaluate(
+        "() => [...document.querySelectorAll('#panels section svg')].map(svg => {"
+        "const box = svg.getBoundingClientRect(); let right = 0;"
+        "for (const path of svg.querySelectorAll('path')) {"
+        "const r = path.getBoundingClientRect();"
+        "right = Math.max(right, (r.right - box.left) / box.width); }"
+        "return right; })")
+
+    assert occupancy
+    assert min(occupancy) > 0.8, occupancy
+    h.assert_clean()
+
+
+def test_hovering_the_plot_edge_reports_the_nearest_samples(
+        open_page, dash_page):
+    h = open_page(dash_page, READY)
+    chart = h.page.locator("#chartMain")
+    box = chart.bounding_box()
+    h.page.mouse.move(box["x"] + 56,
+                      box["y"] + box["height"] * 0.5)
+
+    tip = h.page.locator("#tip")
+    assert float(tip.evaluate("e => getComputedStyle(e).opacity")) == 1
+    lines = tip.inner_text().splitlines()
+    first_x = min(method["trace"]["samples"][0]["t"]
+                  for method in h.data["methods"])
+    assert lines[0] == f"{first_x:.2f}s"
+    for method in h.data["methods"]:
+        samples = method["trace"]["samples"]
+        available = [sample for sample in samples if sample["t"] <= first_x]
+        value = f"{available[-1]['best']:.1f}" if available else "–"
+        assert f"{method['label']}  {value}" in lines
+    h.assert_clean()
+
+
 def test_play_advances_the_run(open_page, dash_page):
     h = open_page(dash_page, READY)
     h.page.focus("#scrub")

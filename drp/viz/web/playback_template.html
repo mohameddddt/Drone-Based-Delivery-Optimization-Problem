@@ -1269,7 +1269,9 @@ function buildDrone(color){
   return {g, glow};
 }
 
-flightEls.forEach(fe => {
+const chipCount = flightEls.length;
+const chipRadius = Math.max(4.8, Math.min(10, chipCount * 0.65));
+flightEls.forEach((fe, chipIndex) => {
   const shadow = el("ellipse", {rx:(unit*1.7).toFixed(2), ry:(unit*0.9).toFixed(2), fill:C.ink});
   L.shadow.appendChild(shadow);
   const outer = el("g", {});          // position + symbol scale
@@ -1278,8 +1280,8 @@ flightEls.forEach(fe => {
   rotor.appendChild(built.g);
   // fan the ID chip by drone index: at t=0 the whole fleet sits on the pad, and
   // four chips at the same offset would be one illegible pile
-  const ca = (fe.data.drone % 8) * (Math.PI*2/8) - Math.PI/2;
-  const cox = Math.cos(ca)*unit*4.0, coy = Math.sin(ca)*unit*4.0;
+  const ca = chipIndex * (Math.PI*2/chipCount) - Math.PI/2;
+  const cox = Math.cos(ca)*unit*chipRadius, coy = Math.sin(ca)*unit*chipRadius;
   const chip = el("g", {});           // stays upright
   chip.appendChild(el("line", {x1:"0", y1:"0", x2:cox.toFixed(2), y2:coy.toFixed(2),
     stroke:fe.data.color, "stroke-width":(unit*0.13).toFixed(3), "stroke-opacity":"0.6"}));
@@ -2175,7 +2177,11 @@ document.getElementById("sweepBtn").addEventListener("click", () => {
 document.getElementById("ttl").textContent = DATA.instance.name;
 document.getElementById("sub").textContent =
   `${DATA.instance.n_customers} stops · ${DATA.instance.fleet.n_drones} drones · ${DATA.meta.zones.length} restricted`;
-setStat("stDrones", DATA.instance.fleet.n_drones);
+// The fleet may be larger than the number of drones the solution actually
+// uses -- a route search that leaves capacity idle is not a bug -- so this
+// counts the aircraft this replay actually shows flying, not the fleet size
+// quoted in the subtitle below.
+setStat("stDrones", DATA.flights.length);
 setStat("stZones", DATA.meta.zones.length);
 setStat("stDeliv", `0/${DATA.instance.n_customers}`);
 setStat("stEnergy", "0");

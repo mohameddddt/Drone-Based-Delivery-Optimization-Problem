@@ -255,9 +255,15 @@ def flight_page(fixture_dir) -> RenderedPage:
     from drp.viz.webdata import build_playback_data
     from drp.viz.webplayback import render_playback_html
 
-    inst = generate_zone_instance("browserfix", 9, 3, seed=7, n_zones=2)
+    inst = generate_zone_instance("browserfix", 16, 8, seed=7, n_zones=3)
     res = solve_one(inst, "alns", seed=1, time_limit=1.5)
     assert res.solution is not None
+    # >= 4, not some tighter number: ALNS is time-limited, so how many
+    # improving moves land before the clock runs out -- and therefore the
+    # final route count -- depends on how fast the machine is, not just the
+    # seed. The overlap test below needs several co-located routes to be
+    # meaningful; it does not need an exact count.
+    assert len([route for route in res.solution.routes if route]) >= 4
     path = fixture_dir / "flight.html"
     render_playback_html(inst, res.solution, path, title="browser fixture")
     data = build_playback_data(inst, res.solution, title="browser fixture")

@@ -89,6 +89,28 @@ def test_every_customer_gets_a_stop_symbol(open_page, flight_page):
     h.assert_clean()
 
 
+def test_aircraft_callsigns_do_not_overlap_when_the_fleet_is_stacked_at_hub(
+        open_page, flight_page):
+    h = open_page(flight_page, READY)
+    rects = h.page.eval_on_selector_all(
+        "#lyrDrones > g > g:nth-child(2) rect",
+        "els => els.map(e => { const r = e.getBoundingClientRect(); "
+        "return {left:r.left, right:r.right, top:r.top, bottom:r.bottom}; })")
+
+    overlaps = []
+    for i, first in enumerate(rects):
+        for j, second in enumerate(rects[i + 1:], start=i + 1):
+            intersects = (first["left"] < second["right"] and
+                          second["left"] < first["right"] and
+                          first["top"] < second["bottom"] and
+                          second["top"] < first["bottom"])
+            if intersects:
+                overlaps.append((i, j))
+
+    assert not overlaps, f"overlapping call-sign chips: {overlaps}"
+    h.assert_clean()
+
+
 def test_panels_are_populated_not_empty_shells(open_page, flight_page):
     """The GSAP guard is not the only way to get an empty page -- a throw part
     way through leaves panels that exist and say nothing."""
@@ -110,6 +132,25 @@ def test_header_stats_match_the_payload(open_page, flight_page):
     delivered, total = h.numbers("#stDeliv")
     assert delivered == 0, "the replay opens before anything has been delivered"
     assert total == data["instance"]["n_customers"]
+    h.assert_clean()
+
+
+def test_the_aircraft_stat_counts_flights_not_idle_fleet_capacity(
+        open_page, flight_page):
+    """The header's "Aircraft" stat used to read `instance.fleet.n_drones` --
+    the fleet size -- rather than how many of those drones the solution
+    actually sent out. A route search leaving spare capacity idle is not a
+    bug, so with 8 drones and only 6 non-empty routes the header claimed 8
+    aircraft while the replay drew 6 drone rows and 6 manifest entries,
+    silently overcounting anyone actually watching the animation land."""
+    h = open_page(flight_page, READY)
+    fleet_size = h.data["instance"]["fleet"]["n_drones"]
+    flights = len(h.data["flights"])
+    assert flights < fleet_size, \
+        "fixture must leave spare fleet capacity idle for this to test anything"
+    assert h.numbers("#stDrones")[0] == flights
+    assert h.page.eval_on_selector_all(
+        ".drone-row", "els => els.length") == flights
     h.assert_clean()
 
 

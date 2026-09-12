@@ -765,7 +765,7 @@ dashdata's. No committed figure moves — those all come from `static.py`.
 
 ### §2.5 A browser test harness, three pages overdue
 
-`tests/browser/` — **67 tests** across the three pages, in headless Chromium. What they
+`tests/browser/` — **70 tests** across the three pages, in headless Chromium. What they
 assert beyond "it rendered": no page error and no console error, the GSAP guard did not
 fire, panels are populated rather than empty shells, the numbers on the page are the
 numbers in the payload that produced them, play advances and scrubbing seeks and selection
@@ -822,7 +822,7 @@ ones. Vector export is covered too: the extension chooses the format for `.png`,
 `.pdf` and `.eps`; the two themes produce different files; `placed_at` changes the type
 and not the figure's dimensions; and regenerating a figure gives the same bytes.
 
-`tests/browser/` (67 tests) is described above.
+`tests/browser/` (70 tests) is described above.
 
 **390 tests**, and for the first time the JavaScript is among them.
 
@@ -914,7 +914,7 @@ placement surfacing its reason, no horizontal overflow at 430 px, the ground
 layer drawing real terrain with every label at a distinct position, dragging
 the depot changing what actually gets solved, and the embedded replay growing
 to its real content height instead of carrying its own internal scrollbar.
-All 75 browser tests (67 existing + 8 new) and the full fast suite stay
+All 78 browser tests (70 across the standalone pages + 8 planner tests) and the full fast suite stay
 green.
 
 **What this version deliberately does not do**, per the roadmap's own
@@ -965,6 +965,93 @@ changes shape.
 ground label has a distinct position, and one asserting the ground layer's
 geometry is byte-identical before and after placing and removing several
 stops.
+
+### §2.5 The interaction audit after the planner landed
+
+The four pages were driven again in a headed Chromium window at **1440 × 960**
+and **430 × 900**, this time with denser fixtures than the browser suite: 16
+stops and eight drones in the replay, 1,885 recorded B&B nodes, and three
+metaheuristics whose step counts differed by two orders of magnitude. Every
+button was exercised, maps were dragged and zoomed, timelines scrubbed both
+ways, axes and fit modes switched, and each page was resized after interaction
+rather than merely opened at its final width.
+
+Two screenshots exposed real defects. The replay's attempt to fan call-signs
+around a co-located fleet put overlapping boxes on top of each other on the
+16-stop/8-drone audit fixture -- **3 overlapping pairs** on the browser
+fixture's own 6-route solution, more on the larger manual audit instance. The
+fan used the drone id modulo eight, so it reserved empty compass points
+instead of distributing the aircraft actually present, and its radius never
+grew, so denser fleets packed the same ring tighter rather than a wider one.
+It now uses the active-route count for both angle and a bounded radius: the
+same fixture measures **zero** box intersections after the fix. (The exact
+route count a time-limited ALNS solve settles on is machine-speed dependent,
+not just seed dependent -- see the fixture note in `conftest.py` -- so the
+overlap count is reported for this repo's own fixture rather than as a
+portable constant.) The aircraft themselves remain stacked on the hub because
+moving a marker to improve a screenshot would claim a physical separation the
+solution does not contain.
+
+The dashboard's shared step domain was correct for its comparison chart and
+wrong for the method-detail charts. SA ran 22,574 iterations while GA ran 369
+generations and ALNS 7,200 iterations, so on `steps` the GA detail used **14%**
+of its plot width and ALNS used **38%**. Those panels answer questions inside
+one method, not across methods; each now uses its own first-to-last step domain
+and all four detail plots use **97%** of their width. The main chart and shared
+playhead deliberately keep the common domain, with the existing warning that
+steps are not comparable. The chart also contained an unused tooltip element:
+hover now discloses the nearest best-so-far value for every method, which is
+the only reliable way to read coincident curves without guessing from colour.
+
+A follow-up review of that tooltip found a second, subtler bug in the same
+code: it turned pointer position into a data-x by dividing by the raw SVG
+width, but `<svg>` draws its axes inset by `padL`/`padR` (56px/12px on the
+main chart), so every reading was off by a pixel offset that scales with
+distance from the left edge. At the plot's left edge — where a user reading
+"where did the run start" is most likely to hover — it reported **0.05s**
+instead of **0.00s**. Fixed by giving the chart object a real inverse of its
+own `px()` mapping (`invX`) instead of re-deriving the mapping by hand at the
+call site.
+
+Widening the replay fixture to eight drones surfaced a fourth, independent bug
+that had nothing to do with the audit's own changes: the header's "Aircraft"
+stat read `instance.fleet.n_drones`, the fleet's *capacity*, not how many of
+those drones the solution actually flew. Every fixture before this session
+happened to use its whole fleet, so `n_drones` and "routes actually flown"
+were always the same number and the bug had no way to show itself. With eight
+drones and only six non-empty routes the header claimed **8 Aircraft** while
+the replay drew six drone rows and six manifest entries — a fleet that a user
+counting icons on screen would never reconcile with the header. Fixed by
+reading `DATA.flights.length` (already the payload's own list of non-empty
+routes) instead of the instance's fleet size.
+
+Four bug-named browser tests pin those repairs:
+`test_aircraft_callsigns_do_not_overlap_when_the_fleet_is_stacked_at_hub`,
+`test_step_axis_does_not_flatten_shorter_method_detail_charts`,
+`test_hovering_the_plot_edge_reports_the_nearest_samples` (added for the dead
+tooltip, then extended in review to hover exactly at `padL` and catch the
+coordinate bug too — it fails with `0.05s` instead of `0.00s` if the padding
+fix is reverted alone), and
+`test_the_aircraft_stat_counts_flights_not_idle_fleet_capacity`.
+
+The `flight_page` fixture itself needed one more repair before any of this
+was trustworthy: it asserted the ALNS solve produced at least 7 non-empty
+routes, calibrated on whatever machine ran the original audit. On this
+machine the same seed and instance settle on 6 routes at every time budget
+from 1.5s to 4s tried — a time-limited local search's iteration count, and
+therefore its route count, tracks CPU speed as well as the seed, so a tight
+threshold is a portable-looking number that is not actually portable. Loosened
+to `>= 4`, which is still enough co-located routes for the overlap test above
+to be meaningful.
+
+**Two tempting changes were not made.** The planner camera initially looked
+suspect on a live desktop-to-phone resize, but measurement refuted it: its SVG
+viewBox stayed at aspect 1.334 while the rendered map moved from 1.334 to
+1.336, well inside sub-pixel rounding, and stop/depot dragging still landed in
+the right world coordinates. The tree likewise survived resize after pan,
+reset, selection and improvement navigation with no jump, overflow or page
+error. Changing either camera without a reproduced failure would have replaced
+tested geometry with a guess.
 
 ---
 

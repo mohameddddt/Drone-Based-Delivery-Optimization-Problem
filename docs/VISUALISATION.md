@@ -886,9 +886,9 @@ limits — and every one of them passes against a page that throws on load and
 renders nothing. Every bug §2.2 and §2.4 record was found by driving the pages
 in a browser by hand.
 
-`tests/browser/` is that, automated. 67 tests across the three pages, plus
+`tests/browser/` is that, automated. 71 tests across the three pages, plus
 eight more covering the planner (§2.1, added later — see its own section
-above), 75 in total:
+above), 79 in total:
 
 ```bash
 pip install -e ".[dev,browser]"
@@ -924,6 +924,69 @@ And, specifically, one test per bug found by hand, named after it:
 | `test_seeking_backwards_un_fires_events` | The documented promise that seeking back un-fires events, which nothing enforced |
 | `test_the_rail_is_height_bound_to_the_map_on_desktop` | The map painted over the manifest, because `aspect-ratio` fed the panel's height back into its width |
 | `test_the_mini_map_is_not_hidden_behind_a_scrollbar` | The tree explorer's rail was height-bound the wrong way, hiding the mini map |
+| `test_aircraft_callsigns_do_not_overlap_when_the_fleet_is_stacked_at_hub` | The replay opened with co-located aircraft call-sign boxes crossing each other -- 3 overlapping pairs on this repo's own 6-route fixture |
+| `test_step_axis_does_not_flatten_shorter_method_detail_charts` | SA's 22,574-step range compressed GA's 369-generation detail to 14% of its plot width and ALNS's to 38% |
+| `test_hovering_the_plot_edge_reports_the_nearest_samples` | The dashboard shipped a tooltip shell with no interaction; once wired up, it also read the wrong x right at the plot edge because it ignored the chart's own padding (0.05s instead of 0.00s) |
+| `test_the_aircraft_stat_counts_flights_not_idle_fleet_capacity` | The replay's "Aircraft" stat read the fleet size, not how many drones the solution actually flew -- invisible until a fixture left capacity idle (8 drones, 6 routes: header said 8, the page drew 6) |
+
+### What the second interaction audit changed
+
+The planner made it possible to re-enter every page from one user flow, so all
+four were exercised again in a headed Chromium window at 1440 × 960 and
+430 × 900. The run used 16 stops, eight drones, 1,885 tree nodes and method
+traces with deliberately mismatched step counts; it included resizing after
+pan/zoom or selection, not only loading directly at phone width.
+
+In the replay, call-signs are now distributed by the number of routes actually
+present and the fan radius grows with that count. Only the labels move: the
+aircraft icons remain honestly co-located at the depot. Measured box
+intersections fell from 3 to 0 on this repo's own browser fixture (a
+higher-route manual audit instance showed the same defect more severely). The
+exact route count a time-limited ALNS solve settles on tracks machine speed as
+well as seed, so the count is reported for this fixture rather than claimed as
+a universal number -- see the comment beside the fixture's own assertion in
+`tests/browser/conftest.py`.
+
+On the dashboard, the main comparison still has one shared x-domain. The small
+method panels now have local x-domains because their job is to explain the
+inside of one run; after the change every detail series occupies 97% of its
+plot instead of GA occupying 14% and ALNS 38% on the step axis. Hovering the
+main chart also reports the nearest best value for every method -- and a
+follow-up look at that same tooltip found it was inverting pointer position
+back to a data-x by dividing by the raw SVG width, ignoring the chart's own
+left/right padding (`padL`/`padR`). That put every reading off by an amount
+that grows toward the edges: at the plot's left edge it read `0.05s` instead
+of `0.00s`. The chart object now exposes `invX()`, the actual inverse of the
+`px()` it already used to place the curves, instead of the call site
+re-deriving that mapping (and its padding) by hand. The tooltip is
+supplementary — the persistent playhead readouts remain the keyboard-readable
+source of the same numbers.
+
+Widening the replay fixture to eight drones (to give the call-sign fix
+something to fan out) surfaced an unrelated fourth bug: the header's
+"Aircraft" stat read `instance.fleet.n_drones` rather than the payload's own
+`flights` list, so it silently reported fleet capacity instead of aircraft
+actually flying. Every earlier fixture used its whole fleet, so the two
+numbers always matched and the bug was unreachable by any existing test. It
+now reads `DATA.flights.length`, the same list the manifest and the drone rows
+already draw from.
+
+The fixture change also exposed that its own `flight_page` setup asserted at
+least 7 non-empty routes, a threshold calibrated on whichever machine had
+originally run the manual audit. On the machine this fix was verified on, the
+same seed and instance settle on 6 routes at every time budget tried from 1.5s
+to 4s — a wall-clock-limited local search's route count tracks CPU speed as
+well as the seed, so a specific count is not portable across machines the way
+a seed alone would be. The assertion is loosened to `>= 4`, still enough
+co-located routes to exercise the overlap fix above.
+
+The audit did **not** change the planner or tree camera. The planner's viewBox
+aspect measured 1.334 before resize while the rendered phone map measured
+1.336, a sub-pixel difference rather than distortion, and dragging still
+mapped to the correct instance coordinates. The tree survived resize after
+pan, reset and node selection without a jump or overflow. Neither had a
+reproduced fault to justify touching geometry that the existing tests already
+pin.
 
 ### Three things the harness does, and why
 

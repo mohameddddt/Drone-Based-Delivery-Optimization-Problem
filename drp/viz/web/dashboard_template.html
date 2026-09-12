@@ -289,6 +289,11 @@ function xMin(){
   return isFinite(lo) ? lo : 0;
 }
 function xSpan(){ return Math.max(1e-9, xMax() - xMin()); }
+function panelDomain(r){
+  const xs = xsOf(r);
+  if (!xs.length) return [0, 1];
+  return [xs[0], xs[xs.length - 1] > xs[0] ? xs[xs.length - 1] : xs[0] + 1];
+}
 // index of the last sample at or before x
 function idxAt(r, x){
   const xs = xsOf(r);
@@ -322,6 +327,12 @@ function makeChart(svg, opts){
            return o.padL + f * (ch.w - o.padL - o.padR); },
     py(v){ const f = (v - ch.y0) / (ch.y1 - ch.y0 || 1);
            return ch.h - o.padB - f * (ch.h - o.padT - o.padB); },
+    // Inverse of px(): screen pixel -> data x. Mirrors px()'s own padding so a
+    // pointer position maps back to the same x it was drawn from -- skipping
+    // padL/padR here is what made the tooltip read a different sample than
+    // the line under the cursor, worst right at the plot edges.
+    invX(px){ const f = (px - o.padL) / (ch.w - o.padL - o.padR || 1);
+              return ch.x0 + clamp(f, 0, 1) * (ch.x1 - ch.x0); },
     x0:0, x1:1,
     layout(){
       const r = svg.getBoundingClientRect();
@@ -525,6 +536,24 @@ function drawMain(){
   mainCh.setHead(playX);
 }
 
+const tip = document.getElementById("tip");
+mainSvg.addEventListener("pointermove", ev => {
+  const box = mainSvg.getBoundingClientRect();
+  const x = mainCh.invX(ev.clientX - box.left);
+  const unitLabel = axisMode === "t" ? `${x.toFixed(2)}s` : `step ${Math.round(x).toLocaleString()}`;
+  const lines = [unitLabel];
+  RUNS.forEach(r => {
+    const index = idxAt(r, x);
+    const sample = index >= 0 ? r.samples[index] : null;
+    lines.push(`${r.label}  ${sample ? fmt(sample.best, 1) : "–"}`);
+  });
+  tip.textContent = lines.join("\n");
+  tip.style.left = clamp(ev.clientX, 80, window.innerWidth - 80) + "px";
+  tip.style.top = Math.max(72, ev.clientY) + "px";
+  tip.style.opacity = 1;
+});
+mainSvg.addEventListener("pointerleave", () => { tip.style.opacity = 0; });
+
 function legendRule(color, dash, width, opacity){
   const d = dash ? ` stroke-dasharray="${dash}"` : "";
   const o = opacity === undefined ? 1 : opacity;
@@ -638,8 +667,9 @@ function drawPanels(){
   panels.forEach(p => {
     const r = p.run;
     const xs = xsOf(r);
+    const domain = panelDomain(r);
     if (p.temp){
-      p.temp.layout(); p.temp.x0 = xMin(); p.temp.x1 = xMax() || 1;
+      p.temp.layout(); p.temp.x0 = domain[0]; p.temp.x1 = domain[1];
       p.temp.grid(); p.temp.clear();
       const pts = [];
       r.samples.forEach((s, i) => {
@@ -655,7 +685,7 @@ function drawPanels(){
       p.temp.setHead(playX);
     }
     if (p.pop){
-      p.pop.layout(); p.pop.x0 = xMin(); p.pop.x1 = xMax() || 1;
+      p.pop.layout(); p.pop.x0 = domain[0]; p.pop.x1 = domain[1];
       p.pop.grid(); p.pop.clear();
       const band = [], meanPts = [], bestPts = [];
       r.samples.forEach((s, i) => {
@@ -673,7 +703,7 @@ function drawPanels(){
       p.pop.setHead(playX);
     }
     if (p.ops){
-      p.ops.layout(); p.ops.x0 = xMin(); p.ops.x1 = xMax() || 1;
+      p.ops.layout(); p.ops.x0 = domain[0]; p.ops.x1 = domain[1];
       p.ops.grid(); p.ops.clear();
       const segs = r.segments;
       const sx = segs.map(sg => axisMode === "t" ? sg.t : sg.step);
