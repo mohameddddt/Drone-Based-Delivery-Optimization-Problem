@@ -200,6 +200,34 @@ def test_the_map_draws_actual_terrain_not_a_blank_grid(planner_server, browser):
         ctx.close()
 
 
+def test_the_city_does_not_reshuffle_as_stops_are_placed(planner_server, browser):
+    """The basemap is picked once and stays put while you plan.
+
+    An earlier version reseeded the whole city (river, roads, districts) from
+    the current stop count, so it visibly rearranged itself under the user's
+    cursor every time a stop was placed or removed -- indistinguishable from
+    a bug even though it was deliberate. The fingerprint of the ground layer
+    must be identical before and after placing several stops."""
+    ctx, page, console, errors = _open(browser, planner_server["url"])
+    try:
+        fingerprint = lambda: page.eval_on_selector(
+            "#lyrGround", "el => el.innerHTML.length + ':' + el.childElementCount")
+        before = fingerprint()
+        for fx, fy in [(0.15, 0.2), (0.3, 0.75), (0.5, 0.15), (0.7, 0.3), (0.85, 0.6)]:
+            _click_fraction(page, fx, fy)
+        after_adds = fingerprint()
+        removed = page.locator(".stop-row button").first
+        removed.click()
+        after_remove = fingerprint()
+
+        assert before == after_adds == after_remove
+
+        assert not errors, "uncaught page errors:\n  " + "\n  ".join(errors)
+        assert not console, "console errors:\n  " + "\n  ".join(console)
+    finally:
+        ctx.close()
+
+
 def test_dragging_the_depot_relocates_it(planner_server, browser):
     """The starting location is not fixed: dragging the hub marker moves it,
     and the moved position is what actually gets solved."""

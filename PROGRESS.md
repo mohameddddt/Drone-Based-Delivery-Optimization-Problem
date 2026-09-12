@@ -905,7 +905,7 @@ directly over HTTP: a valid instance solves, an oversized or undersized one
 is refused, an infeasible one names the stop, malformed JSON is a `400` and
 not a crash, `/results/` cannot be walked outside its own directory, and a
 concurrent solve is refused rather than queued. `tests/browser/
-test_page_planner.py` (7 tests) is the one browser-test file of four that
+test_page_planner.py` (8 tests) is the one browser-test file of four that
 drives a real running server instead of a `file://` page (a new
 session-scoped `planner_server` fixture in `tests/browser/conftest.py`):
 placing stops through to a rendered replay with the right customer count, the
@@ -914,7 +914,7 @@ placement surfacing its reason, no horizontal overflow at 430 px, the ground
 layer drawing real terrain with every label at a distinct position, dragging
 the depot changing what actually gets solved, and the embedded replay growing
 to its real content height instead of carrying its own internal scrollbar.
-All 74 browser tests (67 existing + 7 new) and the full fast suite stay
+All 75 browser tests (67 existing + 8 new) and the full fast suite stay
 green.
 
 **What this version deliberately does not do**, per the roadmap's own
@@ -926,34 +926,45 @@ goals, not started here.
 
 **A round of user feedback landed three fixes on top of the first version.**
 The placement map had started as a bare grid; it now draws the same invented
-aeronautical chart the flight replay draws for a synthetic instance --
-ported from `playback_template.html` and reseeded from stop count and depot
-position, so the placement map and the solved replay read as one city. The
-depot had been fixed; it is now draggable, exactly like a stop, and the
-basemap regenerates once on release rather than on every pointer move (which
-would have made the drag itself feel laggy). And the embedded result pages
-had been boxed into a fixed-height, internally-scrolling iframe -- a second,
-cramped scrollbar inside the page's own -- because they are full documents
-built for a whole browser tab, not a panel; the iframe is now resized to each
-page's actual content height, so this page scrolls once, normally, and the
-embedded one never does.
+aeronautical chart the flight replay draws for a synthetic instance, ported
+from `playback_template.html`. The depot had been fixed; it is now
+draggable, exactly like a stop. And the embedded result pages had been
+boxed into a fixed-height, internally-scrolling iframe -- a second, cramped
+scrollbar inside the page's own -- because they are full documents built for
+a whole browser tab, not a panel; the iframe is now resized to each page's
+actual content height, so this page scrolls once, normally, and the embedded
+one never does.
 
-**Porting the basemap surfaced a bug the automated suite could not have
-caught.** The first version of the port left every district-name label
-positioned at the SVG origin instead of its collision-checked spot: the
-label-*placement* logic (which candidate wins, checked against a minimum
-separation) was ported faithfully, but the actual `x`/`y` assignment lives in
-a separate mechanism in the flight replay -- a `transform` rewritten on every
-zoom, for counter-scaling -- which was dropped rather than adapted. Several
-place names stacked on top of each other, reading as garbled overlapping
-text. Nothing in `tests/test_viz_web.py` or the existing browser suite
-asserts anything about label position, so this was invisible to every
-existing test; found only by taking a screenshot and reading it. Fixed by
-setting `x`/`y` directly at creation -- simpler than the replay's mechanism,
-and correct here because these labels are terrain, not an interactive layer,
-and are free to zoom with the map instead of holding a constant screen size.
-`tests/browser/test_page_planner.py` now asserts every ground label has a
-distinct position, so a regression here would fail loudly next time.
+**Porting the basemap surfaced two bugs the automated suite could not have
+caught, both found by looking rather than by any assertion.** First: the
+initial port left every district-name label positioned at the SVG origin
+instead of its collision-checked spot -- the label-*placement* logic (which
+candidate wins, checked against a minimum separation) was ported faithfully,
+but the actual `x`/`y` assignment lives in a separate mechanism in the flight
+replay (a `transform` rewritten on every zoom, for counter-scaling) that was
+dropped rather than adapted. Several place names stacked on top of each
+other, reading as garbled overlapping text. Fixed by setting `x`/`y` directly
+at creation -- simpler than the replay's mechanism, and correct here because
+these labels are terrain, not an interactive layer, free to zoom with the map
+instead of holding a constant screen size.
+
+Second, and worse because it looked deliberate rather than broken: the first
+version reseeded the whole city from the current stop count (mirroring the
+replay page's own seed formula, which folds in its instance's `n_customers`),
+so the river, roads and districts visibly rearranged themselves every time a
+stop was placed or removed -- a live-edited map redrawing its own terrain
+under the user's cursor on every click. The replay page can afford this
+because it draws one fixed, already-solved instance; this page is edited
+live, and nothing about the *plan* should depend on how many stops happen to
+be on it at a given moment. Fixed by picking the city once, at page load
+(`CITY_SEED`, never reseeded), and only ever recentring it -- still relative
+to the depot, so dragging the depot moves the city, but the city itself never
+changes shape.
+
+`tests/browser/test_page_planner.py` grows to 8 tests: one asserting every
+ground label has a distinct position, and one asserting the ground layer's
+geometry is byte-identical before and after placing and removing several
+stops.
 
 ---
 
@@ -1736,13 +1747,14 @@ Everything below was executed, not assumed.
   geographic instances against 14–99% on synthetic instances of the same size — the
   measurement behind the tightness finding, and the reason SA sits on its warm start.
 - **The planner** (§2.1): `drp serve`, run from an empty directory, solves a placed
-  instance and writes nothing into that directory. All 74 browser tests pass (67
-  existing + 7 new), the 12 new server tests pass, and the fast suite (404 tests here)
+  instance and writes nothing into that directory. All 75 browser tests pass (67
+  existing + 8 new), the 12 new server tests pass, and the fast suite (404 tests here)
   is unaffected. Checked by hand, not just by test, in a real headless-Chromium
   screenshot at 1440 px and 430 px — which is what caught the results tabs opening
-  below the fold on the first pass, and (on a second round of feedback) a blank
-  placement map, a fixed depot and a boxed, internally-scrolling replay, none of
-  which any automated test would have.
+  below the fold on the first pass, and (on later rounds of feedback) a blank
+  placement map, a fixed depot, a boxed internally-scrolling replay, and a city
+  that reshuffled itself under the user on every click — none of which any
+  automated test would have.
 
 ### Bugs found and fixed while building this
 

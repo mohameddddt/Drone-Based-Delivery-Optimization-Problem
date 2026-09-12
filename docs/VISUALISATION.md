@@ -653,13 +653,16 @@ count, payload and battery.
 It is not a blank grid: the ground layer draws the same invented aeronautical
 chart the flight replay draws for a synthetic instance -- a river, a radial
 road network centred on the depot, built-up blobs, parks and district names
--- ported from `playback_template.html` and reseeded from the same two things
-that change here (how many stops there are, and where the depot sits), so the
-placement map and the solved replay read as one city rather than two
-different-looking tools. It regenerates when a stop is added or removed, and
-once when a depot drag releases -- not on every pointer movement, since
-rebuilding a few hundred SVG nodes on every frame of a drag would make the
-drag itself feel laggy.
+-- ported from `playback_template.html`. Unlike the replay page, which draws
+a fixed, already-solved instance and can afford to reseed its city from the
+stop count, this page is edited live: the city is picked once, when the page
+loads, and never reseeded, so it does not visibly rearrange itself every time
+a stop is placed or removed. Dragging the depot still moves the city -- every
+road, blob and park is positioned relative to wherever the depot currently
+is -- but only recentres the same city rather than rolling a new one, and
+only once the drag releases, not on every pointer movement (rebuilding a few
+hundred SVG nodes on every frame of a drag would make the drag itself feel
+laggy).
 
 **Solve.** Runs ALNS at a fixed 5-second budget -- the "short default budget"
 the roadmap asks for -- and shows a loading screen with the real elapsed time
@@ -746,7 +749,7 @@ valid instance solves, an oversized or undersized one is refused, an
 infeasible one names the stop, malformed JSON is a `400` and not a crash,
 `/results/` cannot be walked outside its own directory, and a concurrent
 solve is refused rather than queued silently.
-`tests/browser/test_page_planner.py` (7 tests) is the one browser-test file
+`tests/browser/test_page_planner.py` (8 tests) is the one browser-test file
 of four that drives a real running server instead of a `file://` page:
 placing stops through to a rendered replay with the right customer count, the
 countdown never showing anything but real elapsed/budget, an infeasible
@@ -884,8 +887,8 @@ renders nothing. Every bug §2.2 and §2.4 record was found by driving the pages
 in a browser by hand.
 
 `tests/browser/` is that, automated. 67 tests across the three pages, plus
-seven more covering the planner (§2.1, added later — see its own section
-above), 74 in total:
+eight more covering the planner (§2.1, added later — see its own section
+above), 75 in total:
 
 ```bash
 pip install -e ".[dev,browser]"

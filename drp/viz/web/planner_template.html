@@ -471,10 +471,16 @@ function updateReadout(ev){
 // ===========================================================================
 // basemap -- the same invented aeronautical chart playback_template.html
 // draws for a synthetic instance, ported and trimmed to this page (no real
-// geography here; see PROGRESS.md §2.1). It is not decoration bolted on
-// separately: it is seeded from the same fields the replay page seeds from
-// (stop count, depot position), so the placement map and the solved replay
-// read as the same city rather than two different-looking tools.
+// geography here; see PROGRESS.md §2.1).
+//
+// Unlike the replay page -- which draws a fixed, already-solved instance and
+// so can afford to reseed from its stop count -- this page is edited live.
+// `CITY_SEED` is picked once, below, and never changes: an earlier version
+// reseeded on every stop added or removed, and the city visibly reshuffled
+// under the user's cursor on every click, which read as a bug even though it
+// was deliberate. Dragging the depot still moves the city, because every
+// coordinate below is computed relative to `depotSvg` freshly each call --
+// it just recentres the same city instead of rolling a new one.
 // ===========================================================================
 const C = Object.assign({
   land:"#EFEDE3", urban:"#E4DFCE", urbanEdge:"#D2CCB6",
@@ -514,20 +520,13 @@ function smoothPath(pts){
 
 const DISTRICTS = ["NORTHFIELD","BAYSIDE","OLDGATE","MILLBROOK","EASTPORT","CLAYHILL",
                    "WESTMARSH","KINGSFORD","STONEROW","FAIRVIEW"];
+const CITY_SEED = Math.floor(Math.random() * 0xFFFFFFFF);
 
 function drawBasemap(){
   while (L.ground.firstChild) L.ground.removeChild(L.ground.firstChild);
   while (defs.firstChild) defs.removeChild(defs.firstChild);
 
-  // Reseeded on every call from the two things that actually change here --
-  // how many stops there are, and where the depot sits -- so the "city"
-  // stays reproducible for a given map state and shifts, deliberately, when
-  // that state does. Matches playback_template.html's own seed formula
-  // (which also folds in a zone count and an instance seed; this page has
-  // neither).
-  const seed = stops.length*97
-    + Math.round(Math.abs(depot[0]) + Math.abs(depot[1]))*31;
-  const rng = mulberry32(seed);
+  const rng = mulberry32(CITY_SEED);
   const depotSvg = toSvg(depot);
 
   L.ground.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
@@ -684,7 +683,7 @@ function drawBasemap(){
     const cands = urbanBlobs.slice(1).concat(parks).map(centre);
     const MINSEP = span * 0.17;
     const taken = [[depotSvg[0], depotSvg[1]]];
-    const start = seed % DISTRICTS.length;
+    const start = CITY_SEED % DISTRICTS.length;
     let n = 0;
     cands.forEach(c => {
       if (taken.some(t => Math.hypot(t[0]-c[0], t[1]-c[1]) < MINSEP)) return;
@@ -744,12 +743,12 @@ function addStop(w){
   const y = clamp(w[1], PLANE.ymin, PLANE.ymax);
   stops.push({x, y, demand: DATA.demand_default});
   badStopIndex = null;
-  drawBasemap(); render(); renderStopsList();
+  render(); renderStopsList();
 }
 function removeStopAt(i){
   stops.splice(i, 1);
   badStopIndex = null;
-  drawBasemap(); render(); renderStopsList();
+  render(); renderStopsList();
 }
 function moveStopAt(i, w){
   const s = stops[i];
