@@ -119,8 +119,12 @@
   .run-btn[hidden]{display:none;}
   .tab-note{font-size:10.5px;color:var(--muted);margin:0 0 8px;}
   .tab-status{font-size:10.5px;color:var(--caution);margin-top:6px;}
-  iframe.result-frame{width:100%;height:640px;border:1px solid var(--line);border-radius:var(--r);
-    background:var(--panel);}
+  /* Height is set from JS once the embedded page reports its own content
+     height (see `autoSizeIframe`) -- fixed here only as a placeholder before
+     that happens, so the page never nests a second, boxed scrollbar inside
+     the outer one. This element does not scroll internally. */
+  iframe.result-frame{width:100%;height:300px;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--panel);display:block;}
   iframe.result-frame[hidden]{display:none;}
   .tab-loading[hidden]{display:none;}
   .tab-loading{font-family:var(--f-mono);font-size:11px;color:var(--accent);padding:10px 0;}
@@ -140,7 +144,6 @@
   @keyframes spin{to{transform:rotate(360deg);}}
 
   @media (max-width:430px){
-    iframe.result-frame{height:420px;}
     .wrap{padding:14px 10px 28px;}
   }
 
@@ -165,10 +168,11 @@
     <div class="map-panel" id="mapPanel">
       <svg class="map" id="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
            role="application"
-           aria-label="Delivery map -- click to add a stop, drag a stop to move it, click a stop to remove it"
+           aria-label="Delivery map -- click to add a stop, drag a stop to move it, click a stop to remove it, drag the depot to relocate it"
            tabindex="0">
         <defs id="mapDefs"></defs>
         <g id="world">
+          <g id="lyrGround"></g>
           <g id="lyrGrat"></g>
           <g id="lyrStops"></g>
           <g id="lyrHub"></g>
@@ -182,7 +186,7 @@
           <button id="zOut" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
           <button id="zRst" title="Reset view (0)" aria-label="Reset view">RST</button>
         </div>
-        <div class="plate hint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it</div>
+        <div class="plate hint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it &middot; drag the depot to relocate it</div>
         <div class="badflag" id="badFlag" hidden></div>
       </div>
     </div>
@@ -298,8 +302,16 @@ const flipY = y => PLANE.ymin + PLANE.ymax - y;
 const toSvg = p => [p[0], flipY(p[1])];
 const fromSvg = w => [w[0], flipY(w[1])];
 
+// The starting location -- mutable, unlike the other three pages where the
+// depot comes from a solved instance and never moves. Kept in instance space
+// (same convention as a stop's `x`/`y`); `toSvg` converts it wherever a
+// screen position is needed.
+let depot = DATA.depot.slice();
+
 const svg = document.getElementById("map");
+const defs = document.getElementById("mapDefs");
 const L = {
+  ground: document.getElementById("lyrGround"),
   grat: document.getElementById("lyrGrat"),
   stops: document.getElementById("lyrStops"),
   hub: document.getElementById("lyrHub"),
@@ -309,6 +321,15 @@ function el(tag, attrs){
   const e = document.createElementNS(NS, tag);
   for (const k in attrs) e.setAttribute(k, attrs[k]);
   return e;
+}
+function txt(e, s){ e.textContent = s; return e; }
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 const dataW = PLANE.xmax - PLANE.xmin, dataH = PLANE.ymax - PLANE.ymin;
@@ -332,6 +353,11 @@ function fitHome(){
 fitHome();
 Object.assign(camera, HOME);
 const unit = Math.max(HOME.w, HOME.h) / 100;
+// A fixed extent, independent of the live camera -- the basemap is drawn
+// once against this and then just sits under whatever the camera pans to,
+// exactly as playback_template.html's `vb` does.
+const vb = {x: HOME.x, y: HOME.y, w: HOME.w, h: HOME.h};
+const span = Math.max(vb.w, vb.h);
 
 const MINW = HOME.w / 6, MAXW = HOME.w * 3;
 let pxPerWorld = 1, symK = 1;
@@ -432,6 +458,261 @@ function updateReadout(ev){
 }
 
 // ===========================================================================
+// basemap -- the same invented aeronautical chart playback_template.html
+// draws for a synthetic instance, ported and trimmed to this page (no real
+// geography here; see PROGRESS.md §2.1). It is not decoration bolted on
+// separately: it is seeded from the same fields the replay page seeds from
+// (stop count, depot position), so the placement map and the solved replay
+// read as the same city rather than two different-looking tools.
+// ===========================================================================
+const C = Object.assign({
+  land:"#EFEDE3", urban:"#E4DFCE", urbanEdge:"#D2CCB6",
+  park:"#D3DFC2", parkInk:"#7C9464", tree:"#5F7F4E",
+  waterDeep:"#93B2BA",
+  road:"#FFFFFF", roadCase:"#C7C6B5", roadMinor:"#DCDACB",
+  bldg:"#DEDACB", bldgInk:"#C0BCA9",
+}, {
+  ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8",
+  paper:"#EDEBE1", panel:"#FBFAF5", water:"#BCD3D8",
+  accent:"#2C4F55", accent2:"#3E7078", restricted:"#8E2F63", caution:"#B23A22",
+  warn:"#9C6B12", success:"#3E7A3C",
+}, THEME ? THEME.tokens : {});
+
+function blobPath(cx, cy, r, n, lo, hi, jitter, rng){
+  const pts = [];
+  for (let i=0;i<n;i++){
+    const ang = (i/n)*Math.PI*2 + (jitter ? (rng()-.5)*0.25 : 0);
+    const rad = r * (lo + rng()*(hi-lo));
+    pts.push([cx+Math.cos(ang)*rad, cy+Math.sin(ang)*rad]);
+  }
+  const mid = (a,c) => `${((a[0]+c[0])/2).toFixed(2)},${((a[1]+c[1])/2).toFixed(2)}`;
+  let d = `M ${mid(pts[pts.length-1], pts[0])}`;
+  for (let i=0;i<pts.length;i++)
+    d += ` Q ${pts[i][0].toFixed(2)},${pts[i][1].toFixed(2)} ${mid(pts[i], pts[(i+1)%pts.length])}`;
+  return {d: d + " Z", pts};
+}
+function smoothPath(pts){
+  let d = `M${pts[0][0].toFixed(2)},${pts[0][1].toFixed(2)}`;
+  for (let i=0;i<pts.length-1;i++){
+    const p = pts[i], n = pts[i+1];
+    d += ` Q${p[0].toFixed(2)},${p[1].toFixed(2)} ${((p[0]+n[0])/2).toFixed(2)},${((p[1]+n[1])/2).toFixed(2)}`;
+  }
+  const last = pts[pts.length-1];
+  return d + ` L${last[0].toFixed(2)},${last[1].toFixed(2)}`;
+}
+
+const DISTRICTS = ["NORTHFIELD","BAYSIDE","OLDGATE","MILLBROOK","EASTPORT","CLAYHILL",
+                   "WESTMARSH","KINGSFORD","STONEROW","FAIRVIEW"];
+
+function drawBasemap(){
+  while (L.ground.firstChild) L.ground.removeChild(L.ground.firstChild);
+  while (defs.firstChild) defs.removeChild(defs.firstChild);
+
+  // Reseeded on every call from the two things that actually change here --
+  // how many stops there are, and where the depot sits -- so the "city"
+  // stays reproducible for a given map state and shifts, deliberately, when
+  // that state does. Matches playback_template.html's own seed formula
+  // (which also folds in a zone count and an instance seed; this page has
+  // neither).
+  const seed = stops.length*97
+    + Math.round(Math.abs(depot[0]) + Math.abs(depot[1]))*31;
+  const rng = mulberry32(seed);
+  const depotSvg = toSvg(depot);
+
+  L.ground.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:C.land}));
+
+  // --- river: a real watercourse with banks, crossing the whole sheet
+  const riverEdge = Math.floor(rng()*4);
+  const riverW = span * 0.055;
+  const riverPts = [];
+  for (let i=0;i<=7;i++){
+    const f = i/7, wob = (rng()-.5) * span * 0.13;
+    if (riverEdge===0)      riverPts.push([vb.x + span*0.17 + wob, vb.y - span*0.1 + f*(vb.h+span*0.2)]);
+    else if (riverEdge===1) riverPts.push([vb.x + vb.w - span*0.17 + wob, vb.y - span*0.1 + f*(vb.h+span*0.2)]);
+    else if (riverEdge===2) riverPts.push([vb.x - span*0.1 + f*(vb.w+span*0.2), vb.y + span*0.17 + wob]);
+    else                    riverPts.push([vb.x - span*0.1 + f*(vb.w+span*0.2), vb.y + vb.h - span*0.17 + wob]);
+  }
+  const riverD = smoothPath(riverPts);
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:C.waterDeep,
+    "stroke-width":(riverW*1.16).toFixed(2), "stroke-linecap":"round"}));
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:C.water,
+    "stroke-width":riverW.toFixed(2), "stroke-linecap":"round"}));
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:"#FFFFFF",
+    "stroke-width":(riverW*0.16).toFixed(2), "stroke-opacity":"0.5", "stroke-linecap":"round"}));
+
+  function distToRiver(x, y){
+    let best = Infinity;
+    for (let i=0;i<riverPts.length-1;i++){
+      const [x1,y1] = riverPts[i], [x2,y2] = riverPts[i+1];
+      const dx = x2-x1, dy = y2-y1, L2 = dx*dx+dy*dy || 1;
+      const t = clamp(((x-x1)*dx + (y-y1)*dy)/L2, 0, 1);
+      best = Math.min(best, Math.hypot(x - (x1+t*dx), y - (y1+t*dy)));
+    }
+    return best;
+  }
+
+  // --- built-up area: one dense core on the hub plus satellites
+  const urbanBlobs = [];
+  urbanBlobs.push(blobPath(depotSvg[0], depotSvg[1], span*0.25, 11, .78, 1.2, true, rng));
+  const nSat = 2 + Math.floor(rng()*2);
+  for (let i=0;i<nSat;i++){
+    const ang = rng()*Math.PI*2, rad = span*(0.32 + rng()*0.2);
+    urbanBlobs.push(blobPath(depotSvg[0]+Math.cos(ang)*rad, depotSvg[1]+Math.sin(ang)*rad,
+      span*(0.09+rng()*0.06), 8, .75, 1.25, true, rng));
+  }
+  urbanBlobs.forEach(u => {
+    L.ground.appendChild(el("path", {d:u.d, fill:C.urban, "fill-opacity":"0.85"}));
+    L.ground.appendChild(el("path", {d:u.d, fill:"none", stroke:C.urbanEdge,
+      "stroke-width":(unit*0.16).toFixed(3), "stroke-dasharray":`${(unit*1.4).toFixed(2)},${(unit*0.9).toFixed(2)}`}));
+  });
+
+  // --- parks / woodland
+  const parks = [];
+  for (let i=0;i<4;i++){
+    const ang = rng()*Math.PI*2, rad = span*(0.16 + rng()*0.34);
+    const cx = depotSvg[0]+Math.cos(ang)*rad, cy = depotSvg[1]+Math.sin(ang)*rad;
+    if (distToRiver(cx, cy) < riverW) continue;
+    const p = blobPath(cx, cy, span*(0.045+rng()*0.045), 8, .7, 1.3, true, rng);
+    p.cx = cx; p.cy = cy; p.r = span*0.06;
+    parks.push(p);
+    L.ground.appendChild(el("path", {d:p.d, fill:C.park, "fill-opacity":"0.9"}));
+    L.ground.appendChild(el("path", {d:p.d, fill:"none", stroke:C.parkInk,
+      "stroke-width":(unit*0.13).toFixed(3), "stroke-opacity":"0.5"}));
+    for (let t=0;t<7;t++){
+      const a = rng()*Math.PI*2, rr = rng()*p.r*0.55;
+      L.ground.appendChild(el("circle", {cx:(cx+Math.cos(a)*rr).toFixed(2),
+        cy:(cy+Math.sin(a)*rr).toFixed(2), r:(unit*(0.35+rng()*0.25)).toFixed(2),
+        fill:C.tree, "fill-opacity":"0.45"}));
+    }
+  }
+
+  // --- mask so streets and buildings exist only on dry, built-up land
+  const mask = el("mask", {id:"urbanMask", maskUnits:"userSpaceOnUse",
+    x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1)});
+  mask.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:"#000"}));
+  urbanBlobs.forEach(u => mask.appendChild(el("path", {d:u.d, fill:"#fff"})));
+  parks.forEach(p => mask.appendChild(el("path", {d:p.d, fill:"#000"})));
+  mask.appendChild(el("path", {d:riverD, fill:"none", stroke:"#000",
+    "stroke-width":(riverW*1.25).toFixed(2), "stroke-linecap":"round"}));
+  defs.appendChild(mask);
+
+  // --- radial + ring road network, centred on the hub
+  const streetsG = el("g", {mask:"url(#urbanMask)"});
+  const nRad = 7;
+  const radialAngles = [];
+  for (let i=0;i<nRad;i++) radialAngles.push((i/nRad)*Math.PI*2 + rng()*0.22);
+  function road(d, w, minor){
+    streetsG.appendChild(el("path", {d, fill:"none", stroke:C.roadCase,
+      "stroke-width":(w*1.5).toFixed(3), "stroke-linecap":"round", "stroke-linejoin":"round"}));
+    streetsG.appendChild(el("path", {d, fill:"none", stroke:minor?C.roadMinor:C.road,
+      "stroke-width":w.toFixed(3), "stroke-linecap":"round", "stroke-linejoin":"round"}));
+  }
+  const arterialPaths = [];
+  radialAngles.forEach(a => {
+    const pts = [];
+    for (let s=0;s<=5;s++){
+      const r = (s/5) * span * 0.85;
+      const bend = (rng()-.5) * 0.09 * (s/5);
+      pts.push([depotSvg[0]+Math.cos(a+bend)*r, depotSvg[1]+Math.sin(a+bend)*r]);
+    }
+    const d = smoothPath(pts);
+    arterialPaths.push({d, pts});
+    road(d, unit*0.55, false);
+  });
+  [0.19, 0.34].forEach((rf, i) => {
+    const ring = blobPath(depotSvg[0], depotSvg[1], span*rf, 14, .93, 1.07, false, rng);
+    road(ring.d, unit*(i ? 0.4 : 0.46), false);
+  });
+  const gStep = span * 0.052;
+  for (let x = vb.x - span*0.2; x < vb.x + vb.w + span*0.2; x += gStep)
+    road(`M${(x+(rng()-.5)*gStep*0.3).toFixed(2)},${(vb.y-span*0.2).toFixed(2)} L${(x+(rng()-.5)*gStep*0.3).toFixed(2)},${(vb.y+vb.h+span*0.2).toFixed(2)}`, unit*0.2, true);
+  for (let y = vb.y - span*0.2; y < vb.y + vb.h + span*0.2; y += gStep)
+    road(`M${(vb.x-span*0.2).toFixed(2)},${(y+(rng()-.5)*gStep*0.3).toFixed(2)} L${(vb.x+vb.w+span*0.2).toFixed(2)},${(y+(rng()-.5)*gStep*0.3).toFixed(2)}`, unit*0.2, true);
+  L.ground.appendChild(streetsG);
+
+  // arterials cross the water on bridges -- unmasked, so they stay continuous
+  arterialPaths.forEach(ap => {
+    for (let i=0;i<ap.pts.length-1;i++){
+      const m = [(ap.pts[i][0]+ap.pts[i+1][0])/2, (ap.pts[i][1]+ap.pts[i+1][1])/2];
+      if (distToRiver(m[0], m[1]) > riverW*0.55) continue;
+      const ang = Math.atan2(ap.pts[i+1][1]-ap.pts[i][1], ap.pts[i+1][0]-ap.pts[i][0]);
+      const g = el("g", {transform:`translate(${m[0].toFixed(2)},${m[1].toFixed(2)}) rotate(${(ang*180/Math.PI).toFixed(1)})`});
+      const bl = riverW*0.95, bw = unit*0.95;
+      g.appendChild(el("rect", {x:(-bl/2).toFixed(2), y:(-bw/2).toFixed(2), width:bl.toFixed(2),
+        height:bw.toFixed(2), fill:C.road, stroke:C.ink, "stroke-width":(unit*0.09).toFixed(3),
+        "stroke-opacity":"0.45"}));
+      L.ground.appendChild(g);
+      break;
+    }
+  });
+
+  // --- building footprints: texture only, low contrast, denser near the hub
+  const bldgG = el("g", {mask:"url(#urbanMask)"});
+  const cityR = span * 0.42;
+  const lattice = span * 0.026;
+  for (let x = depotSvg[0]-span*0.5; x < depotSvg[0]+span*0.5; x += lattice){
+    for (let y = depotSvg[1]-span*0.5; y < depotSvg[1]+span*0.5; y += lattice){
+      const t = Math.min(1, Math.hypot(x-depotSvg[0], y-depotSvg[1]) / cityR);
+      if (rng() > 0.62 - t*0.42) continue;
+      const w = lattice*(0.3+rng()*0.34), h = lattice*(0.3+rng()*0.34);
+      const bx = x + rng()*(lattice-w), by = y + rng()*(lattice-h);
+      bldgG.appendChild(el("rect", {x:bx.toFixed(2), y:by.toFixed(2), width:w.toFixed(2),
+        height:h.toFixed(2), fill:C.bldg, stroke:C.bldgInk, "stroke-width":(unit*0.045).toFixed(3),
+        "fill-opacity":"0.7", "stroke-opacity":"0.55"}));
+    }
+  }
+  L.ground.appendChild(bldgG);
+
+  // --- place labels: a few, letter-spaced, the way a chart names districts
+  (function nameDistricts(){
+    const centre = p => [p.cx !== undefined ? p.cx : p.pts.reduce((s,q)=>s+q[0],0)/p.pts.length,
+                         p.cy !== undefined ? p.cy : p.pts.reduce((s,q)=>s+q[1],0)/p.pts.length];
+    const cands = urbanBlobs.slice(1).concat(parks).map(centre);
+    const MINSEP = span * 0.17;
+    const taken = [[depotSvg[0], depotSvg[1]]];
+    const start = seed % DISTRICTS.length;
+    let n = 0;
+    cands.forEach(c => {
+      if (taken.some(t => Math.hypot(t[0]-c[0], t[1]-c[1]) < MINSEP)) return;
+      if (c[0] < vb.x + span*0.04 || c[0] > vb.x + vb.w - span*0.04) return;
+      taken.push(c);
+      // Positioned directly, unlike playback_template.html's counter-scaled
+      // version (a `transform` rewritten on every zoom) -- these labels are
+      // terrain, not an interactive layer, so they are free to zoom with the
+      // map like the roads and buildings around them. Missing this position
+      // entirely (an earlier version of this port did) left every label
+      // stacked at the SVG origin, reading as garbled overlapping text.
+      const t = el("text", {x:c[0].toFixed(2), y:c[1].toFixed(2),
+        "text-anchor":"middle", "font-family":"Familjen Grotesk",
+        "font-weight":"600", "font-size":(unit*1.5).toFixed(2), fill:C.muted2,
+        "letter-spacing":(unit*0.28).toFixed(2), "fill-opacity":"0.9",
+        "paint-order":"stroke", stroke:C.land, "stroke-width":(unit*0.55).toFixed(3),
+        "stroke-linejoin":"round"});
+      txt(t, DISTRICTS[(start + n) % DISTRICTS.length]);
+      n++;
+      L.ground.appendChild(t);
+    });
+  })();
+
+  // --- hub apron on the ground plane (the diamond marker itself is drawn by
+  //     `render()`, on top, in `L.hub`)
+  L.ground.appendChild(el("circle", {cx:depotSvg[0], cy:depotSvg[1], r:(unit*7.2).toFixed(2),
+    fill:"#F4F2EA", "fill-opacity":"0.9"}));
+  L.ground.appendChild(el("circle", {cx:depotSvg[0], cy:depotSvg[1], r:(unit*7.2).toFixed(2),
+    fill:"none", stroke:C.roadCase, "stroke-width":(unit*0.2).toFixed(3)}));
+  for (let i=0;i<24;i++){
+    const a = (i/24)*Math.PI*2, r0 = unit*6.5, r1 = unit*(i%6===0 ? 7.1 : 6.9);
+    L.ground.appendChild(el("line", {x1:(depotSvg[0]+Math.cos(a)*r0).toFixed(2),
+      y1:(depotSvg[1]+Math.sin(a)*r0).toFixed(2), x2:(depotSvg[0]+Math.cos(a)*r1).toFixed(2),
+      y2:(depotSvg[1]+Math.sin(a)*r1).toFixed(2), stroke:C.muted2,
+      "stroke-width":(unit*0.1).toFixed(3), "stroke-opacity":"0.55"}));
+  }
+}
+
+// ===========================================================================
 // stops + depot state
 // ===========================================================================
 let stops = [];           // [{x, y, demand}], array order == future customer id
@@ -452,12 +733,12 @@ function addStop(w){
   const y = clamp(w[1], PLANE.ymin, PLANE.ymax);
   stops.push({x, y, demand: DATA.demand_default});
   badStopIndex = null;
-  render(); renderStopsList();
+  drawBasemap(); render(); renderStopsList();
 }
 function removeStopAt(i){
   stops.splice(i, 1);
   badStopIndex = null;
-  render(); renderStopsList();
+  drawBasemap(); render(); renderStopsList();
 }
 function moveStopAt(i, w){
   const s = stops[i];
@@ -466,12 +747,17 @@ function moveStopAt(i, w){
   s.y = clamp(w[1], PLANE.ymin, PLANE.ymax);
   render();
 }
+function moveDepotTo(w){
+  depot[0] = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  depot[1] = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  render();
+}
 
 function render(){
   while (L.stops.firstChild) L.stops.removeChild(L.stops.firstChild);
   while (L.hub.firstChild) L.hub.removeChild(L.hub.firstChild);
 
-  const [hx, hy] = toSvg(DATA.depot);
+  const [hx, hy] = toSvg(depot);
   const hr = 2.6 * unit * symK;
   const hub = el("path", {
     d: `M ${hx} ${hy-hr} L ${hx+hr} ${hy} L ${hx} ${hy+hr} L ${hx-hr} ${hy} Z`,
@@ -535,8 +821,9 @@ function renderStopsList(){
   });
 }
 
-// ---------- pointer handling: pan the background, add/move/remove a stop ----------
-let dragMode = null;   // null | "pan" | "stop"
+// ---------- pointer handling: pan the background, add/move/remove a stop,
+// drag the depot ----------
+let dragMode = null;   // null | "pan" | "stop" | "depot"
 let dragIndex = null;
 let dragStart = {x:0, y:0};
 let camStart = {x:0, y:0};
@@ -545,11 +832,14 @@ let moved = 0;
 svg.addEventListener("pointerdown", ev => {
   svg.setPointerCapture(ev.pointerId);
   const stopEl = ev.target.closest && ev.target.closest("[data-stop]");
+  const depotEl = !stopEl && ev.target.closest && ev.target.closest('[data-role="depot"]');
   dragStart = {x: ev.clientX, y: ev.clientY};
   moved = 0;
   if (stopEl){
     dragMode = "stop";
     dragIndex = +stopEl.getAttribute("data-stop");
+  } else if (depotEl){
+    dragMode = "depot";
   } else {
     dragMode = "pan";
     camStart = {x: camera.x, y: camera.y};
@@ -568,6 +858,12 @@ svg.addEventListener("pointermove", ev => {
     clampCam(); applyCamera();
   } else if (dragMode === "stop" && moved >= 4){
     moveStopAt(dragIndex, screenToWorld(ev));
+  } else if (dragMode === "depot" && moved >= 4){
+    // The basemap is *not* redrawn on every move -- it is seeded from the
+    // depot's settled position, and regenerating a few hundred SVG nodes per
+    // pointer event would make the drag itself feel laggy. It catches up
+    // once on release.
+    moveDepotTo(screenToWorld(ev));
   }
 });
 svg.addEventListener("pointerup", ev => {
@@ -578,6 +874,8 @@ svg.addEventListener("pointerup", ev => {
   } else if (dragMode === "stop"){
     if (moved < 4) removeStopAt(dragIndex);
     else renderStopsList();
+  } else if (dragMode === "depot" && moved >= 4){
+    drawBasemap();
   }
   dragMode = null; dragIndex = null;
 });
@@ -623,7 +921,7 @@ function buildInstancePayload(){
     energy: {alpha: DATA.energy.alpha, beta: DATA.energy.beta},
     geodesic: false,
     round_distances: false,
-    depot: DATA.depot,
+    depot: depot,
     customers: stops.map((s, i) => ({id: i + 1, coord: [s.x, s.y], demand: s.demand})),
     nofly: {edges: [], polygons: []},
     seed: null,
@@ -812,7 +1110,38 @@ async function runTab(kind){
 document.getElementById("runDash").addEventListener("click", () => runTab("dash"));
 document.getElementById("runTree").addEventListener("click", () => runTab("tree"));
 
+// ===========================================================================
+// embedded result pages -- sized to their own content, not boxed
+// ===========================================================================
+// The three result pages are full documents built for a whole browser tab,
+// not a panel; a fixed-height iframe just puts a second, cramped scrollbar
+// inside the page's own. Instead the iframe is resized to whatever the
+// embedded page actually is, so *this* page scrolls, normally, once, and the
+// embedded one never does. Same-origin (both served by this same server),
+// so reading `contentWindow.document` needs no special handling.
+function autoSizeIframe(frame){
+  function resize(){
+    try {
+      const doc = frame.contentWindow && frame.contentWindow.document;
+      if (!doc || !doc.documentElement) return;
+      const h = Math.max(doc.documentElement.scrollHeight,
+                         doc.body ? doc.body.scrollHeight : 0);
+      if (h > 0) frame.style.height = h + "px";
+    } catch (e) { /* not loaded yet */ }
+  }
+  frame.addEventListener("load", () => {
+    resize();
+    // GSAP layout and web fonts can still be settling a moment after `load`.
+    setTimeout(resize, 300);
+    setTimeout(resize, 1200);
+  });
+  window.addEventListener("resize", () => { if (frame.getAttribute("src")) resize(); });
+}
+["flightFrame", "dashFrame", "treeFrame"].forEach(
+  id => autoSizeIframe(document.getElementById(id)));
+
 // ---------- initial paint ----------
+drawBasemap();
 applyCamera();
 renderStopsList();
 resetDashTreeTabs();

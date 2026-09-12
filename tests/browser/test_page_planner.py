@@ -168,3 +168,109 @@ def test_no_horizontal_overflow_at_430px(planner_server, browser):
         assert not console, "console errors:\n  " + "\n  ".join(console)
     finally:
         ctx.close()
+
+
+def test_the_map_draws_actual_terrain_not_a_blank_grid(planner_server, browser):
+    """The placement map is not empty ground: a river, roads, blobs of
+    built-up land and a district name are all real elements, not a decorative
+    flourish bolted on afterwards -- ported from playback_template.html's own
+    basemap generator so the placement map and the solved replay read as the
+    same city."""
+    ctx, page, console, errors = _open(browser, planner_server["url"])
+    try:
+        ground_children = page.eval_on_selector(
+            "#lyrGround", "el => el.childElementCount")
+        assert ground_children > 20, (
+            f"expected substantial ground-layer geometry, got {ground_children} nodes")
+
+        labels = page.eval_on_selector_all(
+            "#lyrGround text", "els => els.map(e => e.textContent)")
+        assert len(labels) >= 1, "expected at least one district label"
+        # Each label must have been given its own position -- the bug this
+        # test is named after left every label stacked at the SVG origin,
+        # reading as illegible overlapping text.
+        positions = page.eval_on_selector_all(
+            "#lyrGround text", "els => els.map(e => [e.getAttribute('x'), e.getAttribute('y')])")
+        assert len(set(map(tuple, positions))) == len(positions), (
+            f"two labels share a position: {positions}")
+
+        assert not errors, "uncaught page errors:\n  " + "\n  ".join(errors)
+        assert not console, "console errors:\n  " + "\n  ".join(console)
+    finally:
+        ctx.close()
+
+
+def test_dragging_the_depot_relocates_it(planner_server, browser):
+    """The starting location is not fixed: dragging the hub marker moves it,
+    and the moved position is what actually gets solved."""
+    ctx, page, console, errors = _open(browser, planner_server["url"])
+    try:
+        _click_fraction(page, 0.25, 0.25)
+        _click_fraction(page, 0.75, 0.75)
+
+        depot_box = page.locator('[data-role="depot"]').bounding_box()
+        start_x = depot_box["x"] + depot_box["width"] / 2
+        start_y = depot_box["y"] + depot_box["height"] / 2
+        map_box = page.locator("#map").bounding_box()
+        target_x = map_box["x"] + map_box["width"] * 0.8
+        target_y = map_box["y"] + map_box["height"] * 0.2
+
+        page.mouse.move(start_x, start_y)
+        page.mouse.down()
+        page.mouse.move(target_x, target_y, steps=10)
+        page.mouse.up()
+
+        page.click("#solveBtn")
+        page.wait_for_selector("#loadingOverlay", state="hidden", timeout=20_000)
+
+        src = page.get_attribute("#flightFrame", "src")
+        assert src and src.startswith("/results/")
+        sid = src.split("/")[2]
+        flight_path = planner_server["output_root"] / sid / "flight.html"
+        payload = _read_payload(flight_path)
+        moved_depot = payload["instance"]["depot"]
+        # Instance space keeps the plane's own coordinates, defaulting to a
+        # depot at (50, 50); dragging most of the way to a top-right corner
+        # must have moved it well clear of that default in both axes.
+        assert abs(moved_depot[0] - 50.0) > 15, moved_depot
+        assert abs(moved_depot[1] - 50.0) > 15, moved_depot
+
+        assert not errors, "uncaught page errors:\n  " + "\n  ".join(errors)
+        assert not console, "console errors:\n  " + "\n  ".join(console)
+    finally:
+        ctx.close()
+
+
+def test_the_embedded_replay_is_not_a_boxed_scrollable_iframe(planner_server, browser):
+    """The result pages are full documents, not a panel -- the iframe is
+    resized to their real content height rather than clipping them into a
+    fixed box with its own internal scrollbar."""
+    ctx, page, console, errors = _open(browser, planner_server["url"])
+    try:
+        for fx, fy in [(0.2, 0.2), (0.7, 0.7)]:
+            _click_fraction(page, fx, fy)
+        page.click("#solveBtn")
+        page.wait_for_selector("#loadingOverlay", state="hidden", timeout=20_000)
+        page.wait_for_function(
+            "() => !!document.getElementById('flightFrame').getAttribute('src')",
+            timeout=5_000)
+        # The auto-sizing happens a moment after `load`; give it a beat.
+        page.wait_for_timeout(600)
+
+        info = page.evaluate("""() => {
+          const f = document.getElementById('flightFrame');
+          const doc = f.contentWindow.document;
+          return {
+            frameHeight: f.getBoundingClientRect().height,
+            contentHeight: doc.documentElement.scrollHeight,
+          };
+        }""")
+        # The frame must have grown well past its pre-load placeholder height
+        # and must be tall enough to show its content without its own scroll.
+        assert info["frameHeight"] > 400, info
+        assert info["frameHeight"] >= info["contentHeight"] - 2, info
+
+        assert not errors, "uncaught page errors:\n  " + "\n  ".join(errors)
+        assert not console, "console errors:\n  " + "\n  ".join(console)
+    finally:
+        ctx.close()
