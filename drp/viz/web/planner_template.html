@@ -88,6 +88,10 @@
   .stop-row button{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
     border-radius:3px;width:20px;height:20px;cursor:pointer;line-height:1;}
   .stop-row button:hover{background:var(--caution);color:var(--accent-ink);border-color:var(--caution);}
+  .stop-row-head{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted-2);border-bottom:1px solid var(--line);padding-bottom:5px;}
+  .stop-row-head .demand-hd{width:52px;text-align:right;cursor:help;}
+  .stop-row-head span:last-child{width:20px;}
   .empty-note{font-size:10.5px;color:var(--muted-2);font-style:italic;padding:4px 0;}
 
   .solve-btn{width:100%;border:1px solid var(--accent);background:var(--accent);
@@ -195,11 +199,18 @@
       <section class="card">
         <h2>Fleet</h2>
         <div class="field"><span>Drones</span><input id="fDrones" type="number" min="1" step="1"></div>
-        <div class="field"><span>Payload</span><input id="fPayload" type="number" min="0.1" step="0.5"></div>
-        <div class="field"><span>Battery</span><input id="fBattery" type="number" min="1" step="5"></div>
+        <div class="field" title="The most one drone may carry on a single route -- not split across deliveries. A drone can serve several stops in a row as long as their demands, added together, stay under this.">
+          <span>Payload / drone</span><input id="fPayload" type="number" min="0.1" step="0.5"></div>
+        <div class="field" title="The energy budget for one drone's whole route, out and back.">
+          <span>Battery / drone</span><input id="fBattery" type="number" min="1" step="5"></div>
       </section>
       <section class="card">
         <h2>Stops <em id="stopCount">0</em></h2>
+        <div class="stop-row stop-row-head" id="stopsHead" hidden>
+          <span class="idx">#</span><span class="xy">x, y</span>
+          <span class="demand-hd" title="How much this one delivery weighs -- independent of every other stop, and independent of the fleet's payload capacity above.">demand</span>
+          <span></span>
+        </div>
         <div id="stopsList"><div class="empty-note">click the map to add one</div></div>
       </section>
       <section class="card">
@@ -792,6 +803,7 @@ function render(){
 
 function renderStopsList(){
   const box = document.getElementById("stopsList");
+  document.getElementById("stopsHead").hidden = stops.length === 0;
   box.innerHTML = "";
   if (stops.length === 0){
     box.innerHTML = '<div class="empty-note">click the map to add one</div>';
