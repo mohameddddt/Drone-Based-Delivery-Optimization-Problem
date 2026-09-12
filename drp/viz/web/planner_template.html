@@ -1,0 +1,1164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Delivery Planner</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Courier+Prime:wght@400;700&display=swap">
+<style>
+  :root{
+    --paper:#EDEBE1; --paper-2:#E2DFD2; --panel:#FBFAF5;
+    --ink:#1B1F1A; --muted:#585D51; --muted-2:#8A8F80;
+    --line:#D3D5C8; --line-2:#BFC2B3;
+    --restricted:#8E2F63; --caution:#B23A22; --warn:#9C6B12; --success:#3E7A3C;
+    --accent:#2C4F55; --accent-2:#3E7078; --accent-ink:#FFFFFF;
+    --f-display:'Familjen Grotesk',system-ui,sans-serif;
+    --f-mono:'Courier Prime',ui-monospace,Consolas,monospace;
+    --r:5px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;}
+  body{background:var(--paper);color:var(--ink);font-family:var(--f-display);}
+  button{font-family:inherit;}
+  input{font-family:var(--f-mono);}
+
+  .wrap{max-width:1440px;margin:0 auto;padding:22px 16px 40px;
+    display:flex;flex-direction:column;gap:12px;}
+
+  .hud{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:16px 22px;display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:space-between;gap:16px;}
+  .hud-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;}
+  .eyebrow{font-weight:600;font-size:10px;letter-spacing:.16em;color:var(--accent);
+    text-transform:uppercase;}
+  .hud-title h1{font-weight:700;font-size:clamp(20px,3vw,27px);margin:0;letter-spacing:-.01em;}
+  .hud-title .sub{font-family:var(--f-mono);font-size:11px;color:var(--muted-2);}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px;align-items:start;}
+  @media (max-width:1040px){.layout{grid-template-columns:1fr;}}
+
+  .map-panel{position:relative;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--paper);overflow:hidden;width:100%;aspect-ratio:4/3;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.9);}
+  .map-panel svg.map{width:100%;height:100%;display:block;touch-action:none;
+    cursor:crosshair;background:#F1EFE6;}
+  .map-panel svg.map.panning{cursor:grabbing;}
+  .map-chrome{position:absolute;inset:0;pointer-events:none;}
+  .map-chrome > *{pointer-events:auto;}
+  .plate{background:rgba(251,250,245,.93);border:1px solid var(--line);border-radius:4px;}
+  .readout{position:absolute;left:10px;top:10px;padding:4px 8px;font-family:var(--f-mono);
+    font-size:9.5px;color:var(--muted);letter-spacing:.04em;}
+  .hint{position:absolute;left:10px;bottom:10px;padding:5px 9px;font-size:10px;
+    color:var(--muted);max-width:70%;}
+  .zoomer{position:absolute;right:10px;bottom:10px;display:flex;flex-direction:column;
+    overflow:hidden;}
+  .zoomer button{width:29px;height:28px;border:0;background:transparent;color:var(--muted);
+    cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;
+    justify-content:center;border-bottom:1px solid var(--line);}
+  .zoomer button:last-child{border-bottom:0;font-size:10px;}
+  .zoomer button:hover{background:var(--accent);color:var(--accent-ink);}
+  .scalebar{position:absolute;left:10px;top:34px;padding:4px 8px;font-family:var(--f-mono);
+    font-size:9.5px;color:var(--muted);}
+  .badflag{position:absolute;right:10px;top:10px;padding:5px 9px;font-size:10px;
+    color:var(--accent-ink);background:var(--caution);border:1px solid var(--caution);}
+  .badflag[hidden]{display:none;}
+
+  .card{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);
+    padding:12px;}
+  .card > h2{font-weight:600;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted-2);margin:0 0 9px 1px;display:flex;justify-content:space-between;
+    align-items:center;}
+  .card > h2 em{font-style:normal;color:var(--accent);font-family:var(--f-mono);
+    letter-spacing:0;text-transform:none;font-size:10px;}
+
+  .rail{display:flex;flex-direction:column;gap:12px;min-width:0;}
+  .field{display:flex;justify-content:space-between;align-items:center;gap:8px;
+    padding:4px 0;font-size:11.5px;color:var(--muted);}
+  .field input{width:88px;padding:4px 6px;border:1px solid var(--line-2);border-radius:4px;
+    background:var(--paper);color:var(--ink);font-size:11.5px;text-align:right;}
+
+  .stop-row{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10.5px;
+    color:var(--muted);border-bottom:1px dotted var(--line);}
+  .stop-row:last-child{border-bottom:0;}
+  .stop-row .idx{font-family:var(--f-mono);width:20px;color:var(--ink);}
+  .stop-row .xy{font-family:var(--f-mono);flex:1;color:var(--muted-2);font-size:9.5px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .stop-row input{width:52px;padding:3px 4px;border:1px solid var(--line-2);border-radius:3px;
+    background:var(--paper);color:var(--ink);font-size:10.5px;text-align:right;}
+  .stop-row button{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    border-radius:3px;width:20px;height:20px;cursor:pointer;line-height:1;}
+  .stop-row button:hover{background:var(--caution);color:var(--accent-ink);border-color:var(--caution);}
+  .stop-row-head{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted-2);border-bottom:1px solid var(--line);padding-bottom:5px;}
+  .stop-row-head .demand-hd{width:52px;text-align:right;cursor:help;}
+  .stop-row-head span:last-child{width:20px;}
+  .empty-note{font-size:10.5px;color:var(--muted-2);font-style:italic;padding:4px 0;}
+
+  .solve-btn{width:100%;border:1px solid var(--accent);background:var(--accent);
+    color:var(--accent-ink);border-radius:4px;padding:10px;font-weight:600;font-size:12px;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+  .solve-btn:disabled{opacity:.5;cursor:default;}
+  .solve-status{margin-top:8px;font-size:10.5px;color:var(--muted);line-height:1.5;}
+  .solve-status.bad{color:var(--caution);}
+  .solve-status.good{color:var(--success);}
+
+  .tabs-card[hidden]{display:none;}
+  .tabbar{display:flex;gap:4px;margin-bottom:10px;}
+  .tab{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    border-radius:4px;padding:7px 13px;font-size:10.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;cursor:pointer;}
+  .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+  .tabpanel[hidden]{display:none;}
+  .tabtools{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .tabtools .budgets{display:flex;gap:3px;}
+  .tabtools .budgets button{font-family:var(--f-mono);font-size:10px;padding:4px 8px;
+    border-radius:4px;border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    cursor:pointer;}
+  .tabtools .budgets button.on{color:var(--accent-ink);background:var(--accent);
+    border-color:var(--accent);}
+  .run-btn{border:1px solid var(--accent);background:var(--paper);color:var(--accent);
+    border-radius:4px;padding:6px 12px;font-size:10.5px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;cursor:pointer;}
+  .run-btn:hover{background:var(--accent);color:var(--accent-ink);}
+  .run-btn[hidden]{display:none;}
+  .tab-note{font-size:10.5px;color:var(--muted);margin:0 0 8px;}
+  .tab-status{font-size:10.5px;color:var(--caution);margin-top:6px;}
+  /* Height is set from JS once the embedded page reports its own content
+     height (see `autoSizeIframe`) -- fixed here only as a placeholder before
+     that happens, so the page never nests a second, boxed scrollbar inside
+     the outer one. This element does not scroll internally. */
+  iframe.result-frame{width:100%;height:300px;border:1px solid var(--line);border-radius:var(--r);
+    background:var(--panel);display:block;}
+  iframe.result-frame[hidden]{display:none;}
+  .tab-loading[hidden]{display:none;}
+  .tab-loading{font-family:var(--f-mono);font-size:11px;color:var(--accent);padding:10px 0;}
+
+  .loading-overlay{position:fixed;inset:0;background:rgba(27,31,26,.45);
+    display:flex;align-items:center;justify-content:center;z-index:20;}
+  .loading-overlay[hidden]{display:none;}
+  .loading-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+    padding:26px 34px;text-align:center;min-width:240px;}
+  .loading-card .label{font-weight:600;font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--accent);margin-bottom:10px;}
+  .loading-card .countdown{font-family:var(--f-mono);font-size:20px;color:var(--ink);}
+  .loading-card .spinner{width:26px;height:26px;margin:0 auto 12px;border-radius:50%;
+    border:3px solid var(--line);border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;}
+  @media (prefers-reduced-motion: reduce){.loading-card .spinner{animation:none;}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  @media (max-width:430px){
+    .wrap{padding:14px 10px 28px;}
+  }
+
+  .offline-note{max-width:640px;margin:12vh auto;padding:0 24px;
+    font-family:system-ui,sans-serif;color:#1B1F1A;line-height:1.6;}
+  .offline-note h1{font-size:20px;margin:0 0 12px;}
+  .offline-note p{margin:0 0 12px;color:#585D51;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hud">
+    <div class="hud-title">
+      <span class="eyebrow">Interactive planner</span>
+      <h1>Drone Delivery Planner</h1>
+      <span class="sub">place stops, set the fleet, solve</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="map-panel" id="mapPanel">
+      <svg class="map" id="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
+           role="application"
+           aria-label="Delivery map -- click to add a stop, drag a stop to move it, click a stop to remove it, drag the depot to relocate it"
+           tabindex="0">
+        <defs id="mapDefs"></defs>
+        <g id="world">
+          <g id="lyrGround"></g>
+          <g id="lyrGrat"></g>
+          <g id="lyrStops"></g>
+          <g id="lyrHub"></g>
+        </g>
+      </svg>
+      <div class="map-chrome">
+        <div class="plate readout" id="readout">&mdash;</div>
+        <div class="plate scalebar" id="scaleTxt">&mdash;</div>
+        <div class="plate zoomer">
+          <button id="zIn" title="Zoom in (+)" aria-label="Zoom in">&#43;</button>
+          <button id="zOut" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
+          <button id="zRst" title="Reset view (0)" aria-label="Reset view">RST</button>
+        </div>
+        <div class="plate hint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it &middot; drag the depot to relocate it</div>
+        <div class="badflag" id="badFlag" hidden></div>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <section class="card">
+        <h2>Fleet</h2>
+        <div class="field"><span>Drones</span><input id="fDrones" type="number" min="1" step="1"></div>
+        <div class="field" title="The most one drone may carry on a single route -- not split across deliveries. A drone can serve several stops in a row as long as their demands, added together, stay under this.">
+          <span>Payload / drone</span><input id="fPayload" type="number" min="0.1" step="0.5"></div>
+        <div class="field" title="The energy budget for one drone's whole route, out and back.">
+          <span>Battery / drone</span><input id="fBattery" type="number" min="1" step="5"></div>
+      </section>
+      <section class="card">
+        <h2>Stops <em id="stopCount">0</em></h2>
+        <div class="stop-row stop-row-head" id="stopsHead" hidden>
+          <span class="idx">#</span><span class="xy">x, y</span>
+          <span class="demand-hd" title="How much this one delivery weighs -- independent of every other stop, and independent of the fleet's payload capacity above.">demand</span>
+          <span></span>
+        </div>
+        <div id="stopsList"><div class="empty-note">click the map to add one</div></div>
+      </section>
+      <section class="card">
+        <button class="solve-btn" id="solveBtn">Solve</button>
+        <div class="solve-status" id="solveStatus"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div class="card tabs-card" id="tabsCard" hidden>
+    <div class="tabbar">
+      <button class="tab on" data-tab="flight">Flight replay</button>
+      <button class="tab" data-tab="dash">Convergence dashboard</button>
+      <button class="tab" data-tab="tree">Search tree</button>
+    </div>
+
+    <div class="tabpanel" data-panel="flight">
+      <iframe class="result-frame" id="flightFrame" title="Flight replay"></iframe>
+    </div>
+
+    <div class="tabpanel" data-panel="dash" hidden>
+      <div class="tabtools" data-for="dash">
+        <span class="tab-note" style="margin:0">Budget</span>
+        <div class="budgets">
+          <button data-b="quick" class="on">quick</button>
+          <button data-b="thorough">thorough</button>
+        </div>
+        <button class="run-btn" id="runDash">Run</button>
+      </div>
+      <div class="tab-loading" id="dashLoading" hidden></div>
+      <div class="tab-status" id="dashStatus"></div>
+      <iframe class="result-frame" id="dashFrame" title="Convergence dashboard" hidden></iframe>
+    </div>
+
+    <div class="tabpanel" data-panel="tree" hidden>
+      <p class="tab-note" id="treeNote"></p>
+      <div class="tabtools" data-for="tree">
+        <span class="tab-note" style="margin:0">Budget</span>
+        <div class="budgets">
+          <button data-b="quick" class="on">quick</button>
+          <button data-b="thorough">thorough</button>
+        </div>
+        <button class="run-btn" id="runTree">Run</button>
+      </div>
+      <div class="tab-loading" id="treeLoading" hidden></div>
+      <div class="tab-status" id="treeStatus"></div>
+      <iframe class="result-frame" id="treeFrame" title="B&amp;B search tree" hidden></iframe>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay" hidden>
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <div class="label" id="loadingLabel">Solving</div>
+    <div class="countdown" id="loadingCountdown">0.0 / 0.0 s</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+// This page needs GSAP for nothing -- unlike the replay/tree/dashboard pages
+// it has no choreography, only a form and a map, so it is plain DOM/SVG and
+// does not carry the GSAP-or-nothing guard those three pages need. The
+// Google Fonts link above is decorative only: if it fails to load the page
+// still works, just in a fallback system font.
+
+const DATA = __DRP_PLANNER_DATA_JSON__;
+const NS = "http://www.w3.org/2000/svg";
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+// ---------- theme (matches the other three pages) ----------
+const THEME = (DATA && DATA.theme) || null;
+const CSS_VARS = {
+  "--paper":"paper", "--paper-2":"paper2", "--panel":"panel", "--ink":"ink",
+  "--muted":"muted", "--muted-2":"muted2", "--line":"line", "--line-2":"line2",
+  "--restricted":"restricted", "--caution":"caution", "--warn":"warn",
+  "--success":"success", "--accent":"accent", "--accent-2":"accent2",
+};
+function applyTheme(tokens){
+  if (!tokens) return;
+  const root = document.documentElement.style;
+  for (const k in CSS_VARS){ if (tokens[CSS_VARS[k]]) root.setProperty(k, tokens[CSS_VARS[k]]); }
+}
+applyTheme(THEME ? THEME.tokens : null);
+const routeColor = THEME ? THEME.palette[0] : "#002E89";
+
+// ===========================================================================
+// geometry + camera -- copied and trimmed from playback_template.html's
+// pan/zoom/hit-testing block (roadmap §2.1: "a copied-and-trimmed camera
+// block is acceptable for this version"). Planar only: the planner does not
+// build geodesic instances, so there is no lat/lon projection branch here.
+// Pinch-zoom (touch) is trimmed too -- wheel/drag/buttons/keys only.
+// ===========================================================================
+const PLANE = DATA.plane;
+const flipY = y => PLANE.ymin + PLANE.ymax - y;
+const toSvg = p => [p[0], flipY(p[1])];
+const fromSvg = w => [w[0], flipY(w[1])];
+
+// The starting location -- mutable, unlike the other three pages where the
+// depot comes from a solved instance and never moves. Kept in instance space
+// (same convention as a stop's `x`/`y`); `toSvg` converts it wherever a
+// screen position is needed.
+let depot = DATA.depot.slice();
+
+const svg = document.getElementById("map");
+const defs = document.getElementById("mapDefs");
+const L = {
+  ground: document.getElementById("lyrGround"),
+  grat: document.getElementById("lyrGrat"),
+  stops: document.getElementById("lyrStops"),
+  hub: document.getElementById("lyrHub"),
+};
+
+function el(tag, attrs){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function txt(e, s){ e.textContent = s; return e; }
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const dataW = PLANE.xmax - PLANE.xmin, dataH = PLANE.ymax - PLANE.ymin;
+const pad = Math.max(dataW, dataH) * 0.14;
+const bounds = {xmin: PLANE.xmin, xmax: PLANE.xmax, ymin: PLANE.ymin, ymax: PLANE.ymax};
+
+const HOME = {x:0, y:0, w:1, h:1};
+const camera = {x:0, y:0, w:1, h:1};
+let panelAspect = 4/3;
+
+function fitHome(){
+  const r = svg.getBoundingClientRect();
+  panelAspect = (r.width && r.height) ? r.width / r.height : 4/3;
+  const wantW = dataW + 2*pad, wantH = dataH + 2*pad;
+  let w = wantW, h = wantH;
+  if (wantW / wantH < panelAspect) w = wantH * panelAspect; else h = wantW / panelAspect;
+  HOME.w = w; HOME.h = h;
+  HOME.x = (bounds.xmin + bounds.xmax)/2 - w/2;
+  HOME.y = (bounds.ymin + bounds.ymax)/2 - h/2;
+}
+fitHome();
+Object.assign(camera, HOME);
+const unit = Math.max(HOME.w, HOME.h) / 100;
+// A fixed extent, independent of the live camera -- the basemap is drawn
+// once against this and then just sits under whatever the camera pans to,
+// exactly as playback_template.html's `vb` does.
+const vb = {x: HOME.x, y: HOME.y, w: HOME.w, h: HOME.h};
+const span = Math.max(vb.w, vb.h);
+
+const MINW = HOME.w / 6, MAXW = HOME.w * 3;
+let pxPerWorld = 1, symK = 1;
+
+function clampCam(){
+  camera.w = clamp(camera.w, MINW, MAXW);
+  camera.h = camera.w / panelAspect;
+  const wantW = dataW + 2*pad, wantH = dataH + 2*pad;
+  const cx0 = bounds.xmin + dataW/2, cy0 = bounds.ymin + dataH/2;
+  const halfW = Math.max(camera.w, wantW) / 2, halfH = Math.max(camera.h, wantH) / 2;
+  camera.x = clamp(camera.x, cx0 - halfW, cx0 + halfW - camera.w);
+  camera.y = clamp(camera.y, cy0 - halfH, cy0 + halfH - camera.h);
+}
+
+function applyCamera(){
+  svg.setAttribute("viewBox",
+    `${camera.x.toFixed(3)} ${camera.y.toFixed(3)} ${camera.w.toFixed(3)} ${camera.h.toFixed(3)}`);
+  const rect = svg.getBoundingClientRect();
+  pxPerWorld = rect.width ? rect.width / camera.w : 1;
+  symK = clamp(camera.w / HOME.w, 0.4, 2.5);
+  drawGraticule();
+  updateScaleBar();
+  render();
+}
+
+function zoomAbout(px, py, factor){
+  const r = svg.getBoundingClientRect();
+  const wx = camera.x + (px - r.left) / r.width * camera.w;
+  const wy = camera.y + (py - r.top) / r.height * camera.h;
+  const newW = clamp(camera.w * factor, MINW, MAXW);
+  camera.x = wx - (px - r.left) / r.width * newW;
+  camera.y = wy - (py - r.top) / r.height * (newW / panelAspect);
+  camera.w = newW; camera.h = newW / panelAspect;
+  clampCam(); applyCamera();
+}
+function rectCenter(){
+  const r = svg.getBoundingClientRect();
+  return [r.left + r.width/2, r.top + r.height/2];
+}
+function resetView(){ Object.assign(camera, HOME); applyCamera(); }
+
+svg.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  zoomAbout(ev.clientX, ev.clientY, ev.deltaY > 0 ? 1.12 : 1/1.12);
+}, {passive:false});
+document.getElementById("zIn").addEventListener("click", () => {
+  const [cx, cy] = rectCenter(); zoomAbout(cx, cy, 1/1.3);
+});
+document.getElementById("zOut").addEventListener("click", () => {
+  const [cx, cy] = rectCenter(); zoomAbout(cx, cy, 1.3);
+});
+document.getElementById("zRst").addEventListener("click", resetView);
+svg.addEventListener("dblclick", resetView);
+window.addEventListener("keydown", ev => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  const step = camera.w * 0.08;
+  if (ev.key === "ArrowLeft"){ camera.x -= step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowRight"){ camera.x += step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowUp"){ camera.y -= step; clampCam(); applyCamera(); }
+  else if (ev.key === "ArrowDown"){ camera.y += step; clampCam(); applyCamera(); }
+  else if (ev.key === "0"){ resetView(); }
+  else if (ev.key === "+" || ev.key === "="){ const [cx,cy]=rectCenter(); zoomAbout(cx,cy,1/1.3); }
+  else if (ev.key === "-"){ const [cx,cy]=rectCenter(); zoomAbout(cx,cy,1.3); }
+});
+
+function screenToWorld(ev){
+  const r = svg.getBoundingClientRect();
+  const sx = camera.x + (ev.clientX - r.left) / r.width * camera.w;
+  const sy = camera.y + (ev.clientY - r.top) / r.height * camera.h;
+  return fromSvg([sx, sy]);
+}
+
+function drawGraticule(){
+  while (L.grat.firstChild) L.grat.removeChild(L.grat.firstChild);
+  const n = 6;
+  for (let i = 0; i <= n; i++){
+    const x = bounds.xmin + (bounds.xmax - bounds.xmin) * i / n;
+    const y = bounds.ymin + (bounds.ymax - bounds.ymin) * i / n;
+    const [sx] = toSvg([x, bounds.ymin]);
+    const [, sy] = toSvg([bounds.xmin, y]);
+    L.grat.appendChild(el("line", {x1:sx, y1:camera.y-pad, x2:sx, y2:camera.y+camera.h+pad,
+      stroke:"var(--line)", "stroke-width": 0.3*unit, opacity:0.5}));
+    L.grat.appendChild(el("line", {x1:camera.x-pad, y1:sy, x2:camera.x+camera.w+pad, y2:sy,
+      stroke:"var(--line)", "stroke-width": 0.3*unit, opacity:0.5}));
+  }
+}
+
+function updateScaleBar(){
+  document.getElementById("scaleTxt").textContent =
+    `field ${dataW.toFixed(0)}×${dataH.toFixed(0)} units`;
+}
+
+function updateReadout(ev){
+  const w = screenToWorld(ev);
+  document.getElementById("readout").textContent =
+    `x ${w[0].toFixed(1)}  y ${w[1].toFixed(1)}`;
+}
+
+// ===========================================================================
+// basemap -- the same invented aeronautical chart playback_template.html
+// draws for a synthetic instance, ported and trimmed to this page (no real
+// geography here; see PROGRESS.md §2.1). It is not decoration bolted on
+// separately: it is seeded from the same fields the replay page seeds from
+// (stop count, depot position), so the placement map and the solved replay
+// read as the same city rather than two different-looking tools.
+// ===========================================================================
+const C = Object.assign({
+  land:"#EFEDE3", urban:"#E4DFCE", urbanEdge:"#D2CCB6",
+  park:"#D3DFC2", parkInk:"#7C9464", tree:"#5F7F4E",
+  waterDeep:"#93B2BA",
+  road:"#FFFFFF", roadCase:"#C7C6B5", roadMinor:"#DCDACB",
+  bldg:"#DEDACB", bldgInk:"#C0BCA9",
+}, {
+  ink:"#1B1F1A", muted:"#585D51", muted2:"#8A8F80", line:"#D3D5C8",
+  paper:"#EDEBE1", panel:"#FBFAF5", water:"#BCD3D8",
+  accent:"#2C4F55", accent2:"#3E7078", restricted:"#8E2F63", caution:"#B23A22",
+  warn:"#9C6B12", success:"#3E7A3C",
+}, THEME ? THEME.tokens : {});
+
+function blobPath(cx, cy, r, n, lo, hi, jitter, rng){
+  const pts = [];
+  for (let i=0;i<n;i++){
+    const ang = (i/n)*Math.PI*2 + (jitter ? (rng()-.5)*0.25 : 0);
+    const rad = r * (lo + rng()*(hi-lo));
+    pts.push([cx+Math.cos(ang)*rad, cy+Math.sin(ang)*rad]);
+  }
+  const mid = (a,c) => `${((a[0]+c[0])/2).toFixed(2)},${((a[1]+c[1])/2).toFixed(2)}`;
+  let d = `M ${mid(pts[pts.length-1], pts[0])}`;
+  for (let i=0;i<pts.length;i++)
+    d += ` Q ${pts[i][0].toFixed(2)},${pts[i][1].toFixed(2)} ${mid(pts[i], pts[(i+1)%pts.length])}`;
+  return {d: d + " Z", pts};
+}
+function smoothPath(pts){
+  let d = `M${pts[0][0].toFixed(2)},${pts[0][1].toFixed(2)}`;
+  for (let i=0;i<pts.length-1;i++){
+    const p = pts[i], n = pts[i+1];
+    d += ` Q${p[0].toFixed(2)},${p[1].toFixed(2)} ${((p[0]+n[0])/2).toFixed(2)},${((p[1]+n[1])/2).toFixed(2)}`;
+  }
+  const last = pts[pts.length-1];
+  return d + ` L${last[0].toFixed(2)},${last[1].toFixed(2)}`;
+}
+
+const DISTRICTS = ["NORTHFIELD","BAYSIDE","OLDGATE","MILLBROOK","EASTPORT","CLAYHILL",
+                   "WESTMARSH","KINGSFORD","STONEROW","FAIRVIEW"];
+
+function drawBasemap(){
+  while (L.ground.firstChild) L.ground.removeChild(L.ground.firstChild);
+  while (defs.firstChild) defs.removeChild(defs.firstChild);
+
+  // Reseeded on every call from the two things that actually change here --
+  // how many stops there are, and where the depot sits -- so the "city"
+  // stays reproducible for a given map state and shifts, deliberately, when
+  // that state does. Matches playback_template.html's own seed formula
+  // (which also folds in a zone count and an instance seed; this page has
+  // neither).
+  const seed = stops.length*97
+    + Math.round(Math.abs(depot[0]) + Math.abs(depot[1]))*31;
+  const rng = mulberry32(seed);
+  const depotSvg = toSvg(depot);
+
+  L.ground.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:C.land}));
+
+  // --- river: a real watercourse with banks, crossing the whole sheet
+  const riverEdge = Math.floor(rng()*4);
+  const riverW = span * 0.055;
+  const riverPts = [];
+  for (let i=0;i<=7;i++){
+    const f = i/7, wob = (rng()-.5) * span * 0.13;
+    if (riverEdge===0)      riverPts.push([vb.x + span*0.17 + wob, vb.y - span*0.1 + f*(vb.h+span*0.2)]);
+    else if (riverEdge===1) riverPts.push([vb.x + vb.w - span*0.17 + wob, vb.y - span*0.1 + f*(vb.h+span*0.2)]);
+    else if (riverEdge===2) riverPts.push([vb.x - span*0.1 + f*(vb.w+span*0.2), vb.y + span*0.17 + wob]);
+    else                    riverPts.push([vb.x - span*0.1 + f*(vb.w+span*0.2), vb.y + vb.h - span*0.17 + wob]);
+  }
+  const riverD = smoothPath(riverPts);
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:C.waterDeep,
+    "stroke-width":(riverW*1.16).toFixed(2), "stroke-linecap":"round"}));
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:C.water,
+    "stroke-width":riverW.toFixed(2), "stroke-linecap":"round"}));
+  L.ground.appendChild(el("path", {d:riverD, fill:"none", stroke:"#FFFFFF",
+    "stroke-width":(riverW*0.16).toFixed(2), "stroke-opacity":"0.5", "stroke-linecap":"round"}));
+
+  function distToRiver(x, y){
+    let best = Infinity;
+    for (let i=0;i<riverPts.length-1;i++){
+      const [x1,y1] = riverPts[i], [x2,y2] = riverPts[i+1];
+      const dx = x2-x1, dy = y2-y1, L2 = dx*dx+dy*dy || 1;
+      const t = clamp(((x-x1)*dx + (y-y1)*dy)/L2, 0, 1);
+      best = Math.min(best, Math.hypot(x - (x1+t*dx), y - (y1+t*dy)));
+    }
+    return best;
+  }
+
+  // --- built-up area: one dense core on the hub plus satellites
+  const urbanBlobs = [];
+  urbanBlobs.push(blobPath(depotSvg[0], depotSvg[1], span*0.25, 11, .78, 1.2, true, rng));
+  const nSat = 2 + Math.floor(rng()*2);
+  for (let i=0;i<nSat;i++){
+    const ang = rng()*Math.PI*2, rad = span*(0.32 + rng()*0.2);
+    urbanBlobs.push(blobPath(depotSvg[0]+Math.cos(ang)*rad, depotSvg[1]+Math.sin(ang)*rad,
+      span*(0.09+rng()*0.06), 8, .75, 1.25, true, rng));
+  }
+  urbanBlobs.forEach(u => {
+    L.ground.appendChild(el("path", {d:u.d, fill:C.urban, "fill-opacity":"0.85"}));
+    L.ground.appendChild(el("path", {d:u.d, fill:"none", stroke:C.urbanEdge,
+      "stroke-width":(unit*0.16).toFixed(3), "stroke-dasharray":`${(unit*1.4).toFixed(2)},${(unit*0.9).toFixed(2)}`}));
+  });
+
+  // --- parks / woodland
+  const parks = [];
+  for (let i=0;i<4;i++){
+    const ang = rng()*Math.PI*2, rad = span*(0.16 + rng()*0.34);
+    const cx = depotSvg[0]+Math.cos(ang)*rad, cy = depotSvg[1]+Math.sin(ang)*rad;
+    if (distToRiver(cx, cy) < riverW) continue;
+    const p = blobPath(cx, cy, span*(0.045+rng()*0.045), 8, .7, 1.3, true, rng);
+    p.cx = cx; p.cy = cy; p.r = span*0.06;
+    parks.push(p);
+    L.ground.appendChild(el("path", {d:p.d, fill:C.park, "fill-opacity":"0.9"}));
+    L.ground.appendChild(el("path", {d:p.d, fill:"none", stroke:C.parkInk,
+      "stroke-width":(unit*0.13).toFixed(3), "stroke-opacity":"0.5"}));
+    for (let t=0;t<7;t++){
+      const a = rng()*Math.PI*2, rr = rng()*p.r*0.55;
+      L.ground.appendChild(el("circle", {cx:(cx+Math.cos(a)*rr).toFixed(2),
+        cy:(cy+Math.sin(a)*rr).toFixed(2), r:(unit*(0.35+rng()*0.25)).toFixed(2),
+        fill:C.tree, "fill-opacity":"0.45"}));
+    }
+  }
+
+  // --- mask so streets and buildings exist only on dry, built-up land
+  const mask = el("mask", {id:"urbanMask", maskUnits:"userSpaceOnUse",
+    x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1)});
+  mask.appendChild(el("rect", {x:(vb.x-span).toFixed(1), y:(vb.y-span).toFixed(1),
+    width:(vb.w+2*span).toFixed(1), height:(vb.h+2*span).toFixed(1), fill:"#000"}));
+  urbanBlobs.forEach(u => mask.appendChild(el("path", {d:u.d, fill:"#fff"})));
+  parks.forEach(p => mask.appendChild(el("path", {d:p.d, fill:"#000"})));
+  mask.appendChild(el("path", {d:riverD, fill:"none", stroke:"#000",
+    "stroke-width":(riverW*1.25).toFixed(2), "stroke-linecap":"round"}));
+  defs.appendChild(mask);
+
+  // --- radial + ring road network, centred on the hub
+  const streetsG = el("g", {mask:"url(#urbanMask)"});
+  const nRad = 7;
+  const radialAngles = [];
+  for (let i=0;i<nRad;i++) radialAngles.push((i/nRad)*Math.PI*2 + rng()*0.22);
+  function road(d, w, minor){
+    streetsG.appendChild(el("path", {d, fill:"none", stroke:C.roadCase,
+      "stroke-width":(w*1.5).toFixed(3), "stroke-linecap":"round", "stroke-linejoin":"round"}));
+    streetsG.appendChild(el("path", {d, fill:"none", stroke:minor?C.roadMinor:C.road,
+      "stroke-width":w.toFixed(3), "stroke-linecap":"round", "stroke-linejoin":"round"}));
+  }
+  const arterialPaths = [];
+  radialAngles.forEach(a => {
+    const pts = [];
+    for (let s=0;s<=5;s++){
+      const r = (s/5) * span * 0.85;
+      const bend = (rng()-.5) * 0.09 * (s/5);
+      pts.push([depotSvg[0]+Math.cos(a+bend)*r, depotSvg[1]+Math.sin(a+bend)*r]);
+    }
+    const d = smoothPath(pts);
+    arterialPaths.push({d, pts});
+    road(d, unit*0.55, false);
+  });
+  [0.19, 0.34].forEach((rf, i) => {
+    const ring = blobPath(depotSvg[0], depotSvg[1], span*rf, 14, .93, 1.07, false, rng);
+    road(ring.d, unit*(i ? 0.4 : 0.46), false);
+  });
+  const gStep = span * 0.052;
+  for (let x = vb.x - span*0.2; x < vb.x + vb.w + span*0.2; x += gStep)
+    road(`M${(x+(rng()-.5)*gStep*0.3).toFixed(2)},${(vb.y-span*0.2).toFixed(2)} L${(x+(rng()-.5)*gStep*0.3).toFixed(2)},${(vb.y+vb.h+span*0.2).toFixed(2)}`, unit*0.2, true);
+  for (let y = vb.y - span*0.2; y < vb.y + vb.h + span*0.2; y += gStep)
+    road(`M${(vb.x-span*0.2).toFixed(2)},${(y+(rng()-.5)*gStep*0.3).toFixed(2)} L${(vb.x+vb.w+span*0.2).toFixed(2)},${(y+(rng()-.5)*gStep*0.3).toFixed(2)}`, unit*0.2, true);
+  L.ground.appendChild(streetsG);
+
+  // arterials cross the water on bridges -- unmasked, so they stay continuous
+  arterialPaths.forEach(ap => {
+    for (let i=0;i<ap.pts.length-1;i++){
+      const m = [(ap.pts[i][0]+ap.pts[i+1][0])/2, (ap.pts[i][1]+ap.pts[i+1][1])/2];
+      if (distToRiver(m[0], m[1]) > riverW*0.55) continue;
+      const ang = Math.atan2(ap.pts[i+1][1]-ap.pts[i][1], ap.pts[i+1][0]-ap.pts[i][0]);
+      const g = el("g", {transform:`translate(${m[0].toFixed(2)},${m[1].toFixed(2)}) rotate(${(ang*180/Math.PI).toFixed(1)})`});
+      const bl = riverW*0.95, bw = unit*0.95;
+      g.appendChild(el("rect", {x:(-bl/2).toFixed(2), y:(-bw/2).toFixed(2), width:bl.toFixed(2),
+        height:bw.toFixed(2), fill:C.road, stroke:C.ink, "stroke-width":(unit*0.09).toFixed(3),
+        "stroke-opacity":"0.45"}));
+      L.ground.appendChild(g);
+      break;
+    }
+  });
+
+  // --- building footprints: texture only, low contrast, denser near the hub
+  const bldgG = el("g", {mask:"url(#urbanMask)"});
+  const cityR = span * 0.42;
+  const lattice = span * 0.026;
+  for (let x = depotSvg[0]-span*0.5; x < depotSvg[0]+span*0.5; x += lattice){
+    for (let y = depotSvg[1]-span*0.5; y < depotSvg[1]+span*0.5; y += lattice){
+      const t = Math.min(1, Math.hypot(x-depotSvg[0], y-depotSvg[1]) / cityR);
+      if (rng() > 0.62 - t*0.42) continue;
+      const w = lattice*(0.3+rng()*0.34), h = lattice*(0.3+rng()*0.34);
+      const bx = x + rng()*(lattice-w), by = y + rng()*(lattice-h);
+      bldgG.appendChild(el("rect", {x:bx.toFixed(2), y:by.toFixed(2), width:w.toFixed(2),
+        height:h.toFixed(2), fill:C.bldg, stroke:C.bldgInk, "stroke-width":(unit*0.045).toFixed(3),
+        "fill-opacity":"0.7", "stroke-opacity":"0.55"}));
+    }
+  }
+  L.ground.appendChild(bldgG);
+
+  // --- place labels: a few, letter-spaced, the way a chart names districts
+  (function nameDistricts(){
+    const centre = p => [p.cx !== undefined ? p.cx : p.pts.reduce((s,q)=>s+q[0],0)/p.pts.length,
+                         p.cy !== undefined ? p.cy : p.pts.reduce((s,q)=>s+q[1],0)/p.pts.length];
+    const cands = urbanBlobs.slice(1).concat(parks).map(centre);
+    const MINSEP = span * 0.17;
+    const taken = [[depotSvg[0], depotSvg[1]]];
+    const start = seed % DISTRICTS.length;
+    let n = 0;
+    cands.forEach(c => {
+      if (taken.some(t => Math.hypot(t[0]-c[0], t[1]-c[1]) < MINSEP)) return;
+      if (c[0] < vb.x + span*0.04 || c[0] > vb.x + vb.w - span*0.04) return;
+      taken.push(c);
+      // Positioned directly, unlike playback_template.html's counter-scaled
+      // version (a `transform` rewritten on every zoom) -- these labels are
+      // terrain, not an interactive layer, so they are free to zoom with the
+      // map like the roads and buildings around them. Missing this position
+      // entirely (an earlier version of this port did) left every label
+      // stacked at the SVG origin, reading as garbled overlapping text.
+      const t = el("text", {x:c[0].toFixed(2), y:c[1].toFixed(2),
+        "text-anchor":"middle", "font-family":"Familjen Grotesk",
+        "font-weight":"600", "font-size":(unit*1.5).toFixed(2), fill:C.muted2,
+        "letter-spacing":(unit*0.28).toFixed(2), "fill-opacity":"0.9",
+        "paint-order":"stroke", stroke:C.land, "stroke-width":(unit*0.55).toFixed(3),
+        "stroke-linejoin":"round"});
+      txt(t, DISTRICTS[(start + n) % DISTRICTS.length]);
+      n++;
+      L.ground.appendChild(t);
+    });
+  })();
+
+  // --- hub apron on the ground plane (the diamond marker itself is drawn by
+  //     `render()`, on top, in `L.hub`)
+  L.ground.appendChild(el("circle", {cx:depotSvg[0], cy:depotSvg[1], r:(unit*7.2).toFixed(2),
+    fill:"#F4F2EA", "fill-opacity":"0.9"}));
+  L.ground.appendChild(el("circle", {cx:depotSvg[0], cy:depotSvg[1], r:(unit*7.2).toFixed(2),
+    fill:"none", stroke:C.roadCase, "stroke-width":(unit*0.2).toFixed(3)}));
+  for (let i=0;i<24;i++){
+    const a = (i/24)*Math.PI*2, r0 = unit*6.5, r1 = unit*(i%6===0 ? 7.1 : 6.9);
+    L.ground.appendChild(el("line", {x1:(depotSvg[0]+Math.cos(a)*r0).toFixed(2),
+      y1:(depotSvg[1]+Math.sin(a)*r0).toFixed(2), x2:(depotSvg[0]+Math.cos(a)*r1).toFixed(2),
+      y2:(depotSvg[1]+Math.sin(a)*r1).toFixed(2), stroke:C.muted2,
+      "stroke-width":(unit*0.1).toFixed(3), "stroke-opacity":"0.55"}));
+  }
+}
+
+// ===========================================================================
+// stops + depot state
+// ===========================================================================
+let stops = [];           // [{x, y, demand}], array order == future customer id
+let badStopIndex = null;  // 1-based index the last solve flagged, or null
+
+const fleet = {
+  n_drones: DATA.fleet.n_drones,
+  payload: DATA.fleet.payload,
+  battery: DATA.fleet.battery,
+};
+
+function addStop(w){
+  if (stops.length >= DATA.limits.max_stops){
+    setSolveStatus(`at most ${DATA.limits.max_stops} stops`, true);
+    return;
+  }
+  const x = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  const y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  stops.push({x, y, demand: DATA.demand_default});
+  badStopIndex = null;
+  drawBasemap(); render(); renderStopsList();
+}
+function removeStopAt(i){
+  stops.splice(i, 1);
+  badStopIndex = null;
+  drawBasemap(); render(); renderStopsList();
+}
+function moveStopAt(i, w){
+  const s = stops[i];
+  if (!s) return;
+  s.x = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  s.y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  render();
+}
+function moveDepotTo(w){
+  depot[0] = clamp(w[0], PLANE.xmin, PLANE.xmax);
+  depot[1] = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  render();
+}
+
+function render(){
+  while (L.stops.firstChild) L.stops.removeChild(L.stops.firstChild);
+  while (L.hub.firstChild) L.hub.removeChild(L.hub.firstChild);
+
+  const [hx, hy] = toSvg(depot);
+  const hr = 2.6 * unit * symK;
+  const hub = el("path", {
+    d: `M ${hx} ${hy-hr} L ${hx+hr} ${hy} L ${hx} ${hy+hr} L ${hx-hr} ${hy} Z`,
+    fill: "var(--accent)", stroke: "var(--panel)", "stroke-width": 0.4*unit*symK,
+  });
+  hub.setAttribute("data-role", "depot");
+  L.hub.appendChild(hub);
+
+  const r = 2.1 * unit * symK;
+  stops.forEach((s, i) => {
+    const [sx, sy] = toSvg([s.x, s.y]);
+    const bad = badStopIndex === i + 1;
+    const g = el("g", {"data-stop": String(i), "data-role": "stop"});
+    g.appendChild(el("circle", {
+      cx:sx, cy:sy, r,
+      fill: bad ? "var(--caution)" : "var(--panel)",
+      stroke: bad ? "var(--caution)" : "var(--accent)",
+      "stroke-width": 0.5*unit*symK,
+    }));
+    const t = el("text", {
+      x:sx, y:sy, "text-anchor":"middle", "dominant-baseline":"central",
+      "font-family":"var(--f-mono)", "font-size": 2.0*unit*symK,
+      fill: bad ? "var(--panel)" : "var(--accent)", "pointer-events":"none",
+    });
+    t.textContent = String(i + 1);
+    g.appendChild(t);
+    L.stops.appendChild(g);
+  });
+
+  document.getElementById("stopCount").textContent = String(stops.length);
+}
+
+function renderStopsList(){
+  const box = document.getElementById("stopsList");
+  document.getElementById("stopsHead").hidden = stops.length === 0;
+  box.innerHTML = "";
+  if (stops.length === 0){
+    box.innerHTML = '<div class="empty-note">click the map to add one</div>';
+    return;
+  }
+  stops.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "stop-row";
+    const idx = document.createElement("span");
+    idx.className = "idx"; idx.textContent = String(i + 1);
+    const xy = document.createElement("span");
+    xy.className = "xy"; xy.textContent = `${s.x.toFixed(1)}, ${s.y.toFixed(1)}`;
+    const demand = document.createElement("input");
+    demand.type = "number"; demand.min = "0"; demand.step = "0.5";
+    demand.value = s.demand;
+    demand.title = "demand";
+    demand.addEventListener("change", () => {
+      const v = parseFloat(demand.value);
+      s.demand = isFinite(v) && v >= 0 ? v : s.demand;
+      demand.value = s.demand;
+    });
+    const del = document.createElement("button");
+    del.textContent = "×"; del.title = "remove";
+    del.addEventListener("click", () => removeStopAt(i));
+    row.append(idx, xy, demand, del);
+    box.appendChild(row);
+  });
+}
+
+// ---------- pointer handling: pan the background, add/move/remove a stop,
+// drag the depot ----------
+let dragMode = null;   // null | "pan" | "stop" | "depot"
+let dragIndex = null;
+let dragStart = {x:0, y:0};
+let camStart = {x:0, y:0};
+let moved = 0;
+
+svg.addEventListener("pointerdown", ev => {
+  svg.setPointerCapture(ev.pointerId);
+  const stopEl = ev.target.closest && ev.target.closest("[data-stop]");
+  const depotEl = !stopEl && ev.target.closest && ev.target.closest('[data-role="depot"]');
+  dragStart = {x: ev.clientX, y: ev.clientY};
+  moved = 0;
+  if (stopEl){
+    dragMode = "stop";
+    dragIndex = +stopEl.getAttribute("data-stop");
+  } else if (depotEl){
+    dragMode = "depot";
+  } else {
+    dragMode = "pan";
+    camStart = {x: camera.x, y: camera.y};
+    svg.classList.add("panning");
+  }
+});
+svg.addEventListener("pointermove", ev => {
+  updateReadout(ev);
+  if (!dragMode) return;
+  const dx = ev.clientX - dragStart.x, dy = ev.clientY - dragStart.y;
+  moved = Math.max(moved, Math.hypot(dx, dy));
+  if (dragMode === "pan"){
+    const r = svg.getBoundingClientRect();
+    camera.x = camStart.x - dx / r.width * camera.w;
+    camera.y = camStart.y - dy / r.height * camera.h;
+    clampCam(); applyCamera();
+  } else if (dragMode === "stop" && moved >= 4){
+    moveStopAt(dragIndex, screenToWorld(ev));
+  } else if (dragMode === "depot" && moved >= 4){
+    // The basemap is *not* redrawn on every move -- it is seeded from the
+    // depot's settled position, and regenerating a few hundred SVG nodes per
+    // pointer event would make the drag itself feel laggy. It catches up
+    // once on release.
+    moveDepotTo(screenToWorld(ev));
+  }
+});
+svg.addEventListener("pointerup", ev => {
+  try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
+  svg.classList.remove("panning");
+  if (dragMode === "pan" && moved < 4){
+    addStop(screenToWorld(ev));
+  } else if (dragMode === "stop"){
+    if (moved < 4) removeStopAt(dragIndex);
+    else renderStopsList();
+  } else if (dragMode === "depot" && moved >= 4){
+    drawBasemap();
+  }
+  dragMode = null; dragIndex = null;
+});
+
+// ===========================================================================
+// fleet form
+// ===========================================================================
+const fDrones = document.getElementById("fDrones");
+const fPayload = document.getElementById("fPayload");
+const fBattery = document.getElementById("fBattery");
+fDrones.max = String(DATA.limits.max_drones);
+fDrones.value = fleet.n_drones;
+fPayload.value = fleet.payload;
+fBattery.value = fleet.battery;
+
+fDrones.addEventListener("change", () => {
+  const v = clamp(Math.round(+fDrones.value) || 1, 1, DATA.limits.max_drones);
+  fleet.n_drones = v; fDrones.value = v;
+});
+fPayload.addEventListener("change", () => {
+  const v = parseFloat(fPayload.value);
+  fleet.payload = (isFinite(v) && v > 0) ? v : fleet.payload;
+  fPayload.value = fleet.payload;
+});
+fBattery.addEventListener("change", () => {
+  const v = parseFloat(fBattery.value);
+  fleet.battery = (isFinite(v) && v > 0) ? v : fleet.battery;
+  fBattery.value = fleet.battery;
+});
+
+// ===========================================================================
+// solve -> loading -> results
+// ===========================================================================
+let currentSessionId = null;
+let solvedStopCount = 0;
+
+function buildInstancePayload(){
+  return {
+    schema: "drp-instance/v1",
+    name: "planner",
+    n_customers: stops.length,
+    fleet: {n_drones: fleet.n_drones, payload: fleet.payload, battery: fleet.battery},
+    energy: {alpha: DATA.energy.alpha, beta: DATA.energy.beta},
+    geodesic: false,
+    round_distances: false,
+    depot: depot,
+    customers: stops.map((s, i) => ({id: i + 1, coord: [s.x, s.y], demand: s.demand})),
+    nofly: {edges: [], polygons: []},
+    seed: null,
+  };
+}
+
+function setSolveStatus(msg, bad){
+  const el = document.getElementById("solveStatus");
+  el.textContent = msg;
+  el.className = "solve-status" + (bad ? " bad" : msg ? " good" : "");
+}
+function showBadFlag(msg){
+  const f = document.getElementById("badFlag");
+  if (msg){ f.textContent = msg; f.hidden = false; } else { f.hidden = true; }
+}
+
+// Real elapsed time against the real budget the request was sent with -- no
+// fabricated progress, no synthetic steps (roadmap §2.1's own rule). B&B is
+// labelled "up to Ns" because it can finish before its budget; the
+// metaheuristics run to theirs, so a plain "elapsed / budget" is accurate.
+function startCountdown(cdEl, budget, upto, prefix){
+  const t0 = performance.now();
+  function tick(){
+    const elapsed = (performance.now() - t0) / 1000;
+    cdEl.textContent = (prefix || "") + (upto
+      ? `${elapsed.toFixed(1)}s elapsed (up to ${budget.toFixed(1)}s)`
+      : `${elapsed.toFixed(1)} / ${budget.toFixed(1)} s`);
+  }
+  tick();
+  return setInterval(tick, 100);
+}
+
+function showLoading(label, budget, upto){
+  const overlay = document.getElementById("loadingOverlay");
+  document.getElementById("loadingLabel").textContent = label;
+  overlay.hidden = false;
+  return startCountdown(document.getElementById("loadingCountdown"), budget, upto);
+}
+function hideLoading(timer){
+  clearInterval(timer);
+  document.getElementById("loadingOverlay").hidden = true;
+}
+
+async function solve(){
+  if (stops.length < DATA.limits.min_stops){
+    setSolveStatus(`place at least ${DATA.limits.min_stops} stops first`, true);
+    return;
+  }
+  const btn = document.getElementById("solveBtn");
+  btn.disabled = true;
+  showBadFlag(null);
+  const budget = DATA.budgets.solve;
+  const timer = showLoading("Solving", budget, false);
+  try {
+    const resp = await fetch("/api/solve", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(buildInstancePayload()),
+    });
+    let data;
+    try { data = await resp.json(); }
+    catch (e) { data = {ok:false, error: "the server sent back something that wasn't JSON"}; }
+    hideLoading(timer);
+
+    if (!resp.ok || !data.ok){
+      setSolveStatus(data.error || `solve failed (HTTP ${resp.status})`, true);
+      return;
+    }
+    currentSessionId = data.id;
+    if (!data.feasible){
+      badStopIndex = data.stop || null;
+      render();
+      setSolveStatus(data.reason || "this fleet cannot serve these stops", true);
+      if (data.stop) showBadFlag(`stop ${data.stop} is the problem`);
+      document.getElementById("tabsCard").hidden = true;
+      return;
+    }
+    solvedStopCount = stops.length;
+    setSolveStatus(
+      `solved: energy ${data.energy.toFixed(1)}, ${data.drones_used} drone(s) used, `
+      + `${data.wall_time.toFixed(2)}s`, false);
+    const tabsCard = document.getElementById("tabsCard");
+    tabsCard.hidden = false;
+    document.getElementById("flightFrame").src = data.replay_url;
+    resetDashTreeTabs();
+    switchTab("flight");
+    // The results sit below the map+form on any screen shorter than both --
+    // without this a successful solve looks like nothing happened.
+    const reduceMotion = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    tabsCard.scrollIntoView({behavior: reduceMotion ? "auto" : "smooth", block: "start"});
+  } catch (err) {
+    hideLoading(timer);
+    setSolveStatus("request failed: " + err, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.getElementById("solveBtn").addEventListener("click", solve);
+
+// ===========================================================================
+// dashboard / tree tabs -- computed on first open, each with its own honest
+// countdown and a quick/thorough budget switch
+// ===========================================================================
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === name));
+  document.querySelectorAll(".tabpanel").forEach(p => { p.hidden = p.dataset.panel !== name; });
+}
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
+const tabBudget = {dash: "quick", tree: "quick"};
+document.querySelectorAll(".tabtools").forEach(group => {
+  const kind = group.dataset.for;
+  group.querySelectorAll("[data-b]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      group.querySelectorAll("[data-b]").forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      tabBudget[kind] = btn.dataset.b;
+    });
+  });
+});
+
+function resetDashTreeTabs(){
+  const dashFrame = document.getElementById("dashFrame");
+  const treeFrame = document.getElementById("treeFrame");
+  dashFrame.hidden = true; dashFrame.removeAttribute("src");
+  treeFrame.hidden = true; treeFrame.removeAttribute("src");
+  document.getElementById("runDash").hidden = false;
+  document.getElementById("runTree").hidden = false;
+  document.getElementById("dashStatus").textContent = "";
+  document.getElementById("treeStatus").textContent = "";
+  document.getElementById("treeNote").textContent = solvedStopCount > DATA.tree_complete_ceiling
+    ? `This instance has ${solvedStopCount} stops. B&B's tree is only complete for `
+      + `roughly ${DATA.tree_complete_ceiling} or fewer -- above that you'll see a `
+      + `prefix of the search, not the whole tree, and the page says so.`
+    : `This instance has ${solvedStopCount} stops, small enough that B&B will likely `
+      + `finish the whole tree within its budget.`;
+}
+
+async function runTab(kind){
+  if (!currentSessionId) return;
+  const btn = document.getElementById(kind === "dash" ? "runDash" : "runTree");
+  const loadEl = document.getElementById(kind === "dash" ? "dashLoading" : "treeLoading");
+  const statusEl = document.getElementById(kind === "dash" ? "dashStatus" : "treeStatus");
+  const frame = document.getElementById(kind === "dash" ? "dashFrame" : "treeFrame");
+  const upto = kind === "tree";
+  const budgetName = tabBudget[kind];
+  const budget = (kind === "dash" ? DATA.budgets.dash : DATA.budgets.tree)[budgetName];
+
+  btn.disabled = true;
+  statusEl.textContent = "";
+  loadEl.hidden = false;
+  const timer = startCountdown(loadEl, budget, upto, "running… ");
+
+  try {
+    const url = kind === "dash"
+      ? `/api/dashboard?id=${currentSessionId}&budget=${budgetName}`
+      : `/api/tree?id=${currentSessionId}&budget=${budgetName}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    clearInterval(timer);
+    loadEl.hidden = true;
+    if (!resp.ok || !data.ok){
+      statusEl.textContent = data.error || `failed (HTTP ${resp.status})`;
+      btn.disabled = false;
+      return;
+    }
+    frame.src = kind === "dash" ? data.dashboard_url : data.tree_url;
+    frame.hidden = false;
+    btn.hidden = true;
+    if (kind === "tree"){
+      statusEl.textContent = data.optimal
+        ? `proved optimal, ${data.nodes_explored} nodes explored`
+        : `timed out at the budget, ${data.nodes_explored} nodes explored`
+          + (data.complete ? "" : " (a partial trace -- see the note above)");
+    }
+  } catch (err) {
+    clearInterval(timer);
+    loadEl.hidden = true;
+    statusEl.textContent = "request failed: " + err;
+    btn.disabled = false;
+  }
+}
+document.getElementById("runDash").addEventListener("click", () => runTab("dash"));
+document.getElementById("runTree").addEventListener("click", () => runTab("tree"));
+
+// ===========================================================================
+// embedded result pages -- sized to their own content, not boxed
+// ===========================================================================
+// The three result pages are full documents built for a whole browser tab,
+// not a panel; a fixed-height iframe just puts a second, cramped scrollbar
+// inside the page's own. Instead the iframe is resized to whatever the
+// embedded page actually is, so *this* page scrolls, normally, once, and the
+// embedded one never does. Same-origin (both served by this same server),
+// so reading `contentWindow.document` needs no special handling.
+function autoSizeIframe(frame){
+  function resize(){
+    try {
+      const doc = frame.contentWindow && frame.contentWindow.document;
+      if (!doc || !doc.documentElement) return;
+      const h = Math.max(doc.documentElement.scrollHeight,
+                         doc.body ? doc.body.scrollHeight : 0);
+      if (h > 0) frame.style.height = h + "px";
+    } catch (e) { /* not loaded yet */ }
+  }
+  frame.addEventListener("load", () => {
+    resize();
+    // GSAP layout and web fonts can still be settling a moment after `load`.
+    setTimeout(resize, 300);
+    setTimeout(resize, 1200);
+  });
+  window.addEventListener("resize", () => { if (frame.getAttribute("src")) resize(); });
+}
+["flightFrame", "dashFrame", "treeFrame"].forEach(
+  id => autoSizeIframe(document.getElementById(id)));
+
+// ---------- initial paint ----------
+drawBasemap();
+applyCamera();
+renderStopsList();
+resetDashTreeTabs();
+
+})();
+</script>
+</body>
+</html>

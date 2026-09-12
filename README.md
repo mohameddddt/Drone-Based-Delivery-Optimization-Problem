@@ -23,10 +23,12 @@ drp show plan.json --instance city.json -o routes.png --web flight.html
 ```
 
 `flight.html` opens directly in a browser — a pan/zoom map with the fleet flying the
-solution on one clock. **[docs/VISUALISATION.md](docs/VISUALISATION.md)** is the runnable
-guide to that page and to every other view: the static plot, the animated GIF, the Branch &
-Bound search-tree explorer (`drp tree`), and the GA/SA/ALNS convergence dashboard
-(`drp dash`).
+solution on one clock. Prefer to skip the JSON entirely? `drp serve` starts a local
+planner: place stops on a map, set the fleet, solve, and see the same replay plus the
+search-tree explorer and convergence dashboard, all in one page.
+**[docs/VISUALISATION.md](docs/VISUALISATION.md)** is the runnable guide to that page and
+to every other view: the static plot, the animated GIF, the Branch & Bound search-tree
+explorer (`drp tree`), and the GA/SA/ALNS convergence dashboard (`drp dash`).
 
 Every view writes vector as readily as raster — `-o routes.svg`, `.pdf` or `.eps`, the
 extension decides — and every view is drawn in a **colour-blind-safe theme by default**,
@@ -178,12 +180,16 @@ drp tree     inst.json --time 20 -o tree.html
 drp dash     inst.json --methods ga,sa,alns --time 5 -o dash.html
 drp export   sol.json --instance inst.json --format geojson -o routes.geojson
 drp export   sol.json --instance inst.json --format qgc -o missions/
+drp serve                                        # interactive planner, no JSON needed
 ```
 
 `drp` is installed by `pip install -e .`; `python -m drp.app` works without installing.
 
 The three HTML views — the flight replay, the B&B tree explorer and the convergence
 dashboard — are each a single self-contained file that opens in a browser with no server.
+`drp serve` is the exception: a small local server (loopback only, one solve at a time)
+that lets you place stops and configure the fleet in a browser instead of writing JSON,
+then embeds those same three views on the result.
 **[docs/VISUALISATION.md](docs/VISUALISATION.md)** documents all of them, including the
 controls, which parameters change the output, the two colour themes, and what the
 separation number does and does not mean.
@@ -268,7 +274,7 @@ produced it. The report `\input`s generated tables; nothing is typed by hand.
 ```bash
 pytest -q                  # everything, including the browser tests
 pytest -q -m "not slow"    # the fast subset CI runs on every push (~2.5 min)
-pytest -q -m browser       # the three HTML pages, in headless Chromium (~37 s)
+pytest -q -m browser       # the four HTML/server-backed pages, in headless Chromium (~50 s)
 ```
 
 The browser tests need `pip install -e ".[dev,browser]"` and `playwright install
@@ -276,7 +282,9 @@ chromium`; without them they skip with a message rather than passing silently. L
 the CVRPLIB/Solomon tests skip without the third-party benchmark data, which is not
 committed.
 
-**624 tests** with everything present. The ones that matter most:
+**624 tests**, plus 19 more from the interactive planner (`drp serve`, roadmap §2.1) --
+12 for the server's request handling in `test_server.py` and 7 more in `tests/browser/`
+-- with everything present. The ones that matter most:
 
 | Test | What it proves |
 |---|---|

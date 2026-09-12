@@ -337,6 +337,31 @@ def dash_page(fixture_dir) -> RenderedPage:
 
 
 @pytest.fixture(scope="session")
+def planner_server(tmp_path_factory):
+    """A live planner server, for the one page that isn't a `file://` URI.
+
+    The other three pages are static files; the planner is a running
+    server, so Playwright has to navigate to a real `http://127.0.0.1:PORT/`
+    instead. Session-scoped like the other page fixtures -- the server is
+    cheap to start, and one solve at a time is exactly what the tests want
+    to exercise anyway.
+    """
+    import threading
+
+    from drp.app.server import make_server
+
+    root = tmp_path_factory.mktemp("planner-server-output")
+    srv = make_server(host="127.0.0.1", port=0, output_root=root)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    host, port = srv.server_address[:2]
+    yield {"url": f"http://{host}:{port}/", "output_root": root}
+    srv.shutdown()
+    thread.join(timeout=5)
+    srv.server_close()
+
+
+@pytest.fixture(scope="session")
 def payload_of():
     """Read a page's inlined payload back out of the file it was written to.
 

@@ -12,6 +12,7 @@
     drp export   sol.json --instance inst.json --format qgc -o missions/
     drp bench    --suite default --time 5 --seeds 1-5
     drp bench    --suite geo --time 5 --seeds 1-5
+    drp serve    --port 8000
 
 `docs/VISUALISATION.md` is the runnable guide to every view `show` and `tree`
 produce.
@@ -380,6 +381,35 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    """Start the interactive planner: place stops, configure the fleet, solve.
+
+    A thin CLI wrapper around `drp.app.server.make_server` -- see that module
+    for the server itself. Bound to loopback only; there is no
+    authentication, which is fine for a tool that only ever talks to the
+    browser on the same machine.
+    """
+    import webbrowser
+
+    from drp.app.server import make_server
+
+    srv = make_server(host=args.host, port=args.port, theme=args.theme)
+    host, port = srv.server_address[:2]
+    url = f"http://{host}:{port}/"
+    print(f"drp planner: {url}")
+    print("Ctrl+C to stop")
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    return 0
+
+
 def _add_theme(parser: argparse.ArgumentParser) -> None:
     """`--theme` for every subcommand that draws something.
 
@@ -559,6 +589,18 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("-o", "--output", required=True,
                    help="qgc: a directory, or a .plan file for a single drone")
     e.set_defaults(func=cmd_export)
+
+    sv = sub.add_parser("serve", help="interactive planner: place stops, "
+                        "configure the fleet, solve, see the result")
+    sv.add_argument("--host", default="127.0.0.1",
+                    help="bind address (loopback only -- not for exposing "
+                         "this on a network)")
+    sv.add_argument("--port", type=int, default=0,
+                    help="TCP port (default: pick a free one)")
+    sv.add_argument("--no-browser", action="store_true",
+                    help="do not open a browser window (for scripted use)")
+    _add_theme(sv)
+    sv.set_defaults(func=cmd_serve)
 
     return p
 
