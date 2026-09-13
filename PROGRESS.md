@@ -34,7 +34,7 @@ held up by the explanatory B&B trace. The §7–8 service and most of P5 are not
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
 | **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — its embedded replay loads Solver Vision on request), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; performance profiles, anytime/TTT curves, ablations, hardness correlation ✅; wind ✗ |
-| **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅; REST service ✗ |
+| **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅, local synchronous REST solve ✅; Docker, simulator and docs site ✗ |
 | **P5 Push it** | ✗ Not started |
 
 ### The six quick wins
@@ -2108,7 +2108,7 @@ Listed so nothing looks finished that isn't.
 | §5.3 | Learned methods | Not started |
 | §5.4 | Performance | ◐ The Split decoder went from `O(K n^3)` to `O(n^2)`, 10-20x, in pure Python, and a profile now names the next bottleneck (`_insertion_costs`, 85% of an ALNS run at `n = 100`). Numba/Rust still not started, and `n = 100` is still out of reach at a 5 s budget |
 | §6 | Performance profiles, ECDF, time-to-target/anytime curves, ablations, instance-hardness correlation | ✅ Landed — `drp/eval/profiles.py`, `run_analysis.py`, `run_ablation.py`. Still open: anytime curves for the synthetic and literature suites (their stored runs predate trajectories), an ablation at a longer budget, and a B&B incumbent timeline |
-| §7–8 | REST API, Docker, simulator, docs site | Not started |
+| §7–8 | REST API, Docker, simulator, docs site | ◐ First REST slice landed: `drp api` is a documented loopback-only synchronous `POST /v1/solve`, accepts the existing `drp-instance/v1` schema and method, calls `solve_one`, and returns `drp-solution/v1` plus its certificate. Submit/poll, Docker, simulator and a docs site remain deliberately out of scope |
 
 ### Two honest caveats
 

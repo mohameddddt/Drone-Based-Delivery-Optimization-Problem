@@ -410,6 +410,23 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_api(args) -> int:
+    from drp.app.rest_api import make_api_server
+
+    srv = make_api_server(host=args.host, port=args.port)
+    host, port = srv.server_address[:2]
+    print(f"drp REST API: http://{host}:{port}/v1/solve")
+    print("Ctrl+C to stop")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    return 0
+
+
 def _add_theme(parser: argparse.ArgumentParser) -> None:
     """`--theme` for every subcommand that draws something.
 
@@ -601,6 +618,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="do not open a browser window (for scripted use)")
     _add_theme(sv)
     sv.set_defaults(func=cmd_serve)
+
+    api = sub.add_parser("api", help="local HTTP API: POST /v1/solve")
+    api.add_argument("--host", default="127.0.0.1",
+                     help="bind address (loopback only -- not for exposing "
+                          "this on a network)")
+    api.add_argument("--port", type=int, default=8000,
+                     help="TCP port (default: 8000)")
+    api.set_defaults(func=cmd_api)
 
     return p
 
