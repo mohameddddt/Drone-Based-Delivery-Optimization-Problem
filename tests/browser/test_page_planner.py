@@ -302,3 +302,30 @@ def test_the_embedded_replay_is_not_a_boxed_scrollable_iframe(planner_server, br
         assert not console, "console errors:\n  " + "\n  ".join(console)
     finally:
         ctx.close()
+
+
+def test_solver_vision_can_be_loaded_and_toggled_inside_the_embedded_replay(
+        planner_server, browser):
+    ctx, page, console, errors = _open(browser, planner_server["url"])
+    try:
+        for fx, fy in [(0.2, 0.2), (0.7, 0.7)]:
+            _click_fraction(page, fx, fy)
+        page.click("#solveBtn")
+        page.wait_for_selector("#loadingOverlay", state="hidden", timeout=20_000)
+        page.click("#loadVision")
+        page.wait_for_selector("#visionLoading", state="visible", timeout=5_000)
+        page.wait_for_selector("#visionLoading", state="hidden", timeout=20_000)
+        page.wait_for_function("""() => {
+          const frame = document.getElementById('flightFrame');
+          return frame.contentWindow
+            && !frame.contentWindow.document.getElementById('visionBtn').hidden;
+        }""", timeout=5_000)
+
+        frame = page.frame_locator("#flightFrame")
+        frame.locator("#visionBtn").click()
+        assert "on" in (frame.locator("#visionBtn").get_attribute("class") or "")
+
+        assert not errors, "uncaught page errors:\n  " + "\n  ".join(errors)
+        assert not console, "console errors:\n  " + "\n  ".join(console)
+    finally:
+        ctx.close()

@@ -40,13 +40,16 @@ def _pairs():
             if (s := solution_path_for(f)) is not None]
 
 
+PAIRS = _pairs()
+PAIR_IDS = [vrp.stem for vrp, _ in PAIRS]
+
+
 def test_the_benchmark_set_is_actually_there():
-    pairs = _pairs()
-    assert pairs, "no .vrp/.sol pairs found"
-    assert len(pairs) >= 20, f"only {len(pairs)} instances -- is the set complete?"
+    assert PAIRS, "no .vrp/.sol pairs found"
+    assert len(PAIRS) >= 20, f"only {len(PAIRS)} instances -- is the set complete?"
 
 
-@pytest.mark.parametrize("vrp,sol", _pairs(), ids=lambda p: Path(p).stem)
+@pytest.mark.parametrize("vrp,sol", PAIRS, ids=PAIR_IDS)
 def test_published_optimum_reproduces_under_our_objective(vrp, sol):
     """Their routes, our arithmetic, their number."""
     inst = read_cvrplib(vrp).instance
@@ -59,7 +62,7 @@ def test_published_optimum_reproduces_under_our_objective(vrp, sol):
         f"{inst.name}: published {published.cost}, we score {ours}")
 
 
-@pytest.mark.parametrize("vrp,sol", _pairs(), ids=lambda p: Path(p).stem)
+@pytest.mark.parametrize("vrp,sol", PAIRS, ids=PAIR_IDS)
 def test_published_optimum_passes_our_feasibility_checker(vrp, sol):
     """A published optimum our checker rejects would mean the checker is wrong."""
     inst = read_cvrplib(vrp).instance

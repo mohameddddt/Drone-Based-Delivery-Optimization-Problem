@@ -25,13 +25,14 @@ which is also how three geodesic defects in that page were found. Every view is 
 in [docs/VISUALISATION.md](docs/VISUALISATION.md). **§2.1's interactive planner is now in
 too** — `drp serve` starts a local server, place stops and a fleet in a browser instead of
 writing JSON, then solve and see the same three existing views embedded on the result. Its
-stretch goals (a real-geography toggle, drawing no-fly zones, a Solver Vision toggle on the
-embedded replay) are not built. The §7–8 service and most of P5 are not started.
+stretch goals (a real-geography toggle and drawing no-fly zones) are not built. The embedded
+replay now loads Solver Vision lazily, so its five-second ALNS result is never replaced or
+held up by the explanatory B&B trace. The §7–8 service and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — no real-geography toggle, no-fly drawing or Solver Vision toggle yet), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — its embedded replay loads Solver Vision on request), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; performance profiles, anytime/TTT curves, ablations, hardness correlation ✅; wind ✗ |
 | **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅; REST service ✗ |
 | **P5 Push it** | ✗ Not started |
@@ -900,12 +901,12 @@ Measured, from an empty directory (`docs/VISUALISATION.md`'s own rule): an
 the CLI), energy 734.58, and nothing is written into the launching directory
 -- every artefact lives under the server's own temp root.
 
-**Tests: 16 more.** `tests/test_server.py` (12 tests, fast) drives the server
+**Tests: 22 more.** `tests/test_server.py` (13 tests, fast) drives the server
 directly over HTTP: a valid instance solves, an oversized or undersized one
 is refused, an infeasible one names the stop, malformed JSON is a `400` and
 not a crash, `/results/` cannot be walked outside its own directory, and a
 concurrent solve is refused rather than queued. `tests/browser/
-test_page_planner.py` (8 tests) is the one browser-test file of four that
+test_page_planner.py` (9 tests) is the one browser-test file of four that
 drives a real running server instead of a `file://` page (a new
 session-scoped `planner_server` fixture in `tests/browser/conftest.py`):
 placing stops through to a rendered replay with the right customer count, the
@@ -914,15 +915,23 @@ placement surfacing its reason, no horizontal overflow at 430 px, the ground
 layer drawing real terrain with every label at a distinct position, dragging
 the depot changing what actually gets solved, and the embedded replay growing
 to its real content height instead of carrying its own internal scrollbar.
-All 78 browser tests (70 across the standalone pages + 8 planner tests) and the full fast suite stay
-green.
+All 80 browser tests (71 across the standalone pages + 9 planner tests) and the 430-test
+fast suite pass; five absent-CVRPLIB tests skip normally when their third-party data is not
+installed.
+
+**The first stretch goal is now in, without making the ordinary solve slower.**
+After a feasible solve, **Load Solver Vision** runs the existing traced B&B
+call only when asked, then swaps the embedded iframe to the same replay with
+its existing **Solver vision** control enabled. The replay says how many
+route prefixes really matched a recorded B&B node; an ALNS solution is still
+an ALNS solution, and the explanatory B&B search neither substitutes nor
+changes it. The ordinary five-second ALNS request remains exactly that.
 
 **What this version deliberately does not do**, per the roadmap's own
 scoping of a first version: no real-geography toggle (the plane is a plain
 100x100 square with an *invented* city on it, not the Pontianak geodesic
-instance or its OSM basemap), no drawing no-fly zones, no Solver Vision
-toggle on the embedded replay. All three are the roadmap's named stretch
-goals, not started here.
+instance or its OSM basemap), and no drawing no-fly zones. Those are the two
+remaining §2.1 stretch goals.
 
 **A round of user feedback landed three fixes on top of the first version.**
 The placement map had started as a bare grid; it now draws the same invented
@@ -2086,7 +2095,7 @@ Listed so nothing looks finished that isn't.
 
 | Roadmap | Item | Note |
 |---|---|---|
-| §2.1 | Interactive 2D map, drag-and-drop what-if | ◐ Core landed (`drp serve` — see its section above): place stops, set the fleet, solve, see the result in the existing three views. Stretch not built: real-geography toggle, no-fly drawing, Solver Vision toggle on the embedded replay |
+| §2.1 | Interactive 2D map, drag-and-drop what-if | ◐ Core landed (`drp serve` — see its section above): place stops, set the fleet, solve, see the result in the existing three views; Solver Vision now loads lazily into the embedded replay from a separate traced B&B run, leaving the ALNS solution unchanged. Stretch not built: real-geography toggle, no-fly drawing |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
 | §2.4 | — | **Done.** B&B tree explorer, Solver Vision and the GA/SA/ALNS convergence dashboard are all in |
 | §2.5 | TikZ export | Considered and rejected, with the reasoning written down in `generate_figures.py`. `pgf` is the cheaper thing to try first if the report ever needs it. SVG/PDF export and the colour-blind-safe theme are done |

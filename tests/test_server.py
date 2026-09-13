@@ -109,6 +109,20 @@ def test_valid_instance_solves_and_serves_replay(server):
     assert rstatus == 200
 
 
+def test_solver_vision_renders_the_existing_replay_with_a_trace(server):
+    customers = [_stop(1, 30, 30), _stop(2, 70, 70)]
+    status, solved = _post_json(server, "/api/solve", _instance(customers))
+    assert status == 200
+    assert solved["feasible"] is True
+
+    vstatus, vision = _get_json(server, f"/api/vision?id={solved['id']}")
+    assert vstatus == 200
+    assert vision["vision_url"].endswith("/flight-vision.html")
+    page_status, page = _get(server, vision["vision_url"])
+    assert page_status == 200
+    assert b"const VISION = {" in page
+
+
 def test_oversized_stop_count_is_rejected(server):
     customers = [_stop(i, float(i % 100), float((i * 7) % 100)) for i in range(1, MAX_STOPS + 2)]
     status, data = _post_json(server, "/api/solve", _instance(customers))

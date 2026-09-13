@@ -36,6 +36,7 @@ from urllib.parse import parse_qs, urlsplit
 from drp.core.energy import route_energy
 from drp.core.feasibility import feasibility_certificate
 from drp.core.instance import DRPInstance
+from drp.core.solution import Solution
 from drp.eval.runner import solve_one
 from drp.instances.io import instance_from_dict
 from drp.viz.theme import resolve as resolve_theme
@@ -64,6 +65,8 @@ SOLVE_BUDGET = 5.0
 DASH_BUDGETS = {"quick": 3.0, "thorough": 8.0}
 TREE_BUDGETS = {"quick": 10.0, "thorough": 25.0}
 TREE_MAX_NODES = 8000
+VISION_BUDGET = 10.0
+VISION_MAX_NODES = 8000
 #: B&B's tree is only complete for small instances; see docs/VISUALISATION.md.
 TREE_COMPLETE_CEILING = 8
 
@@ -83,7 +86,8 @@ DEFAULTS: Dict[str, Any] = {
     "energy": {"alpha": 1.0, "beta": 0.3},
     "demand_default": 2.0,
     "limits": {"min_stops": MIN_STOPS, "max_stops": MAX_STOPS, "max_drones": MAX_DRONES},
-    "budgets": {"solve": SOLVE_BUDGET, "dash": DASH_BUDGETS, "tree": TREE_BUDGETS},
+    "budgets": {"solve": SOLVE_BUDGET, "dash": DASH_BUDGETS, "tree": TREE_BUDGETS,
+                "vision": VISION_BUDGET},
     "tree_complete_ceiling": TREE_COMPLETE_CEILING,
 }
 
@@ -107,6 +111,7 @@ class Session:
     """
 
     instance: DRPInstance
+    solution: Optional[Solution] = None
     created: float = field(default_factory=time.time)
 
 
@@ -130,10 +135,11 @@ class PlannerState:
         payload = json.dumps(data).replace("</", "<\\/")
         return self.template.replace(DATA_TOKEN, payload)
 
-    def new_session(self, inst: DRPInstance) -> str:
+    def new_session(self, inst: DRPInstance,
+                    solution: Optional[Solution] = None) -> str:
         sid = uuid.uuid4().hex
         (self.output_root / sid).mkdir(parents=True, exist_ok=True)
-        self.sessions[sid] = Session(instance=inst)
+        self.sessions[sid] = Session(instance=inst, solution=solution)
         return sid
 
     def session_dir(self, sid: str) -> Path:
@@ -208,7 +214,7 @@ def handle_solve(state: PlannerState, body: bytes) -> Dict[str, Any]:
     finally:
         state.lock.release()
 
-    sid = state.new_session(inst)
+    sid = state.new_session(inst, res.solution)
 
     if res.solution is None:
         bad = _first_impossible_stop(inst)
@@ -228,6 +234,36 @@ def handle_solve(state: PlannerState, body: bytes) -> Dict[str, Any]:
         "drones_used": cert["drones_used"], "wall_time": res.wall_time,
         "budget": SOLVE_BUDGET, "replay_url": f"/results/{sid}/flight.html",
     }
+
+
+def handle_vision(state: PlannerState, sid: str) -> Dict[str, Any]:
+    sess = state.sessions.get(sid)
+    if sess is None:
+        raise PlannerError(404, "unknown session -- solve first")
+    if sess.solution is None:
+        raise PlannerError(400, "this instance has no feasible replay")
+
+    if not state.lock.acquire(blocking=False):
+        raise PlannerError(409, "a solve is already running -- wait for it "
+                           "to finish")
+    try:
+        from drp.exact.bnb import solve_bnb
+        from drp.meta.construct import best_construction
+        from drp.viz.treedata import build_vision_data
+
+        result = solve_bnb(sess.instance, time_limit=VISION_BUDGET,
+                           warm_start=best_construction(sess.instance), trace=True,
+                           trace_max_nodes=VISION_MAX_NODES)
+        vision = build_vision_data(sess.instance, sess.solution, result)
+    finally:
+        state.lock.release()
+
+    outdir = state.session_dir(sid)
+    render_playback_html(sess.instance, sess.solution,
+                         outdir / "flight-vision.html", title="planner solve",
+                         vision=vision, theme=state.theme)
+    return {"ok": True, "vision_url": f"/results/{sid}/flight-vision.html",
+            "budget": VISION_BUDGET, "nodes_explored": result.nodes_explored}
 
 
 def handle_dashboard(state: PlannerState, sid: str, budget_name: str) -> Dict[str, Any]:
@@ -374,6 +410,9 @@ class PlannerHandler(BaseHTTPRequestHandler):
                 sid = (qs.get("id") or [""])[0]
                 budget = (qs.get("budget") or ["quick"])[0]
                 self._json(200, handle_tree(state, sid, budget))
+            elif path == "/api/vision":
+                sid = (qs.get("id") or [""])[0]
+                self._json(200, handle_vision(state, sid))
             else:
                 self._json(404, {"error": "not found"})
         except PlannerError as exc:

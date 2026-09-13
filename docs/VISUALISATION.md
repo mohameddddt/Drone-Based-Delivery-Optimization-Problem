@@ -672,6 +672,14 @@ content height rather than boxed into a fixed panel with a second,
 inner scrollbar -- it is a full page, built for a whole browser tab, and
 looks like one here too. The dashboard and tree tabs do the same once run.
 
+**Solver Vision.** The flight tab offers **Load Solver Vision** after a feasible
+solve. It deliberately starts a separate, traced B&B run only then (up to 10 s,
+one solve at a time), replaces the iframe with the same replay carrying that
+trace, and exposes its existing **Solver vision** button. Its rejected-route
+strokes are evidence from that B&B search, not a second answer: the displayed
+ALNS solution and its certificate are unchanged. The status says how many B&B
+nodes were recorded so an early proof or timeout is visible rather than implied.
+
 **The other two tabs** -- convergence dashboard and search tree -- start
 empty with a *Run* button and a quick/thorough budget switch (dashboard: 3 s
 or 8 s per method; tree: 10 s or 25 s), computed only when asked for, each
@@ -720,8 +728,8 @@ solution does exist but fails some other way, the message comes straight off
 Stated plainly, per the roadmap's own scoping: no real-geography toggle --
 the plane is a plain 100×100 square with an *invented* city drawn on it, the
 same way a synthetic instance gets one in the flight replay, not the
-Pontianak geodesic instance or its OSM basemap -- no drawing no-fly zones, no
-Solver Vision toggle on the embedded replay, and no live progress streaming
+Pontianak geodesic instance or its OSM basemap -- no drawing no-fly zones, and
+no live progress streaming
 while a solve runs. The brief rules the last one out deliberately; "watching
 the algorithm" is what the tree explorer and convergence dashboard are *for*,
 as a replay afterwards, not a thing to fake here. The camera code is a
@@ -744,20 +752,21 @@ label has a distinct position.
 
 ### Testing it
 
-`tests/test_server.py` drives the server directly over HTTP (no browser): a
+`tests/test_server.py` (13 tests) drives the server directly over HTTP (no browser): a
 valid instance solves, an oversized or undersized one is refused, an
 infeasible one names the stop, malformed JSON is a `400` and not a crash,
-`/results/` cannot be walked outside its own directory, and a concurrent
-solve is refused rather than queued silently.
-`tests/browser/test_page_planner.py` (8 tests) is the one browser-test file
+`/results/` cannot be walked outside its own directory, a concurrent solve is
+refused rather than queued silently, and the optional trace returns a replay
+whose vision payload is real B&B evidence.
+`tests/browser/test_page_planner.py` (9 tests) is the one browser-test file
 of four that drives a real running server instead of a `file://` page:
 placing stops through to a rendered replay with the right customer count, the
 countdown never showing anything but real elapsed/budget, an infeasible
 placement surfacing its reason, no horizontal overflow at 430 px, the ground
 layer actually drawing terrain with every label at a distinct position,
-dragging the depot changing what gets solved, and the embedded replay
-growing to its real content height rather than carrying its own internal
-scrollbar.
+dragging the depot changing what gets solved, the embedded replay growing to
+its real content height rather than carrying its own internal scrollbar, and
+the lazy B&B trace exposing and toggling Solver Vision inside that replay.
 
 ---
 

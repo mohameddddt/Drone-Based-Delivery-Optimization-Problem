@@ -228,6 +228,12 @@
     </div>
 
     <div class="tabpanel" data-panel="flight">
+      <div class="tabtools">
+        <span class="tab-note" id="visionNote">Add B&amp;B's rejected routes to this replay.</span>
+        <button class="run-btn" id="loadVision" disabled>Load Solver Vision</button>
+      </div>
+      <div class="tab-loading" id="visionLoading" hidden></div>
+      <div class="tab-status" id="visionStatus"></div>
       <iframe class="result-frame" id="flightFrame" title="Flight replay"></iframe>
     </div>
 
@@ -1058,6 +1064,11 @@ document.querySelectorAll(".tabtools").forEach(group => {
 });
 
 function resetDashTreeTabs(){
+  const visionButton = document.getElementById("loadVision");
+  visionButton.hidden = false;
+  visionButton.disabled = false;
+  document.getElementById("visionLoading").hidden = true;
+  document.getElementById("visionStatus").textContent = "";
   const dashFrame = document.getElementById("dashFrame");
   const treeFrame = document.getElementById("treeFrame");
   dashFrame.hidden = true; dashFrame.removeAttribute("src");
@@ -1073,6 +1084,37 @@ function resetDashTreeTabs(){
     : `This instance has ${solvedStopCount} stops, small enough that B&B will likely `
       + `finish the whole tree within its budget.`;
 }
+
+async function loadVision(){
+  if (!currentSessionId) return;
+  const btn = document.getElementById("loadVision");
+  const loadEl = document.getElementById("visionLoading");
+  const statusEl = document.getElementById("visionStatus");
+  btn.disabled = true;
+  statusEl.textContent = "";
+  loadEl.hidden = false;
+  const timer = startCountdown(loadEl, DATA.budgets.vision, true, "tracing… ");
+  try {
+    const resp = await fetch(`/api/vision?id=${currentSessionId}`);
+    const data = await resp.json();
+    clearInterval(timer);
+    loadEl.hidden = true;
+    if (!resp.ok || !data.ok){
+      statusEl.textContent = data.error || `failed (HTTP ${resp.status})`;
+      btn.disabled = false;
+      return;
+    }
+    document.getElementById("flightFrame").src = data.vision_url;
+    statusEl.textContent = `traced ${data.nodes_explored} B&B nodes; use Solver vision in the replay`;
+    btn.hidden = true;
+  } catch (err) {
+    clearInterval(timer);
+    loadEl.hidden = true;
+    statusEl.textContent = "request failed: " + err;
+    btn.disabled = false;
+  }
+}
+document.getElementById("loadVision").addEventListener("click", loadVision);
 
 async function runTab(kind){
   if (!currentSessionId) return;
