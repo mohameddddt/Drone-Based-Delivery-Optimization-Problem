@@ -428,3 +428,125 @@ def plot_theme_swatches(path: PathLike,
                  fontsize=11)
     fig.tight_layout()
     return save_figure(fig, path)
+
+
+# ---------------------------------------------------------------------------
+# Roadmap §6: benchmarking figures. Each takes the dict the matching function
+# in `drp.eval.profiles` returns, so a figure is always a view of numbers that
+# were also written to JSON.
+# ---------------------------------------------------------------------------
+def _series_style(th: Theme, m: str, i: int) -> Dict[str, Any]:
+    base = m.split(":")[0]
+    return {"color": th.method_color(base, i) if base == m else th.color(i),
+            "linestyle": th.method_mpl_dash(base) if base == m else th.mpl_dash(i),
+            "label": METHOD_LABELS.get(m, m)}
+
+
+def plot_performance_profile(profile: Dict[str, Any], path: PathLike,
+                             title: str = "Performance profile",
+                             theme: Optional[Union[str, Theme]] = None,
+                             placed_at: Optional[float] = None) -> Path:
+    """Dolan-Moré curves: higher and further left is better."""
+    th = resolve(theme)
+    with report_typography(9.0, placed_at):
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for i, (m, rho) in enumerate(profile["rho"].items()):
+            st = _series_style(th, m, i)
+            st["label"] = f"{st['label']} (wins {profile['wins'][m]:.0%})"
+            ax.step(profile["taus"], rho, where="post", **st)
+        ax.set_xlabel(r"$\tau$ -- within this factor of the best method "
+                      f"({profile['statistic']} over seeds)")
+        ax.set_ylabel(r"share of instances $\rho(\tau)$")
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_title(f"{title} ({profile['n_instances']} instances)")
+        ax.legend(loc="lower right")
+        fig.tight_layout()
+        return save_figure(fig, path)
+
+
+def plot_quality_ecdf(q: Dict[str, Any], path: PathLike,
+                      title: str = "Solution quality over all runs",
+                      theme: Optional[Union[str, Theme]] = None,
+                      placed_at: Optional[float] = None) -> Path:
+    th = resolve(theme)
+    with report_typography(9.0, placed_at):
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        pos = [x for d in q.values() for x in d["xs"] if x > 0]
+        floor = min(pos) / 2 if pos else 1e-3
+        for i, (m, d) in enumerate(q.items()):
+            if not d["xs"]:
+                continue
+            xs = [max(x, floor) for x in d["xs"]]
+            ax.step([floor] + xs, [0.0] + d["ys"], where="post", **_series_style(th, m, i))
+        ax.set_xscale("log")
+        ax.set_xlabel(f"gap to reference, % (log; runs at the reference drawn at {floor:.2g})")
+        ax.set_ylabel("share of runs")
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_title(title)
+        ax.legend(loc="lower right")
+        fig.tight_layout()
+        return save_figure(fig, path)
+
+
+def plot_anytime(curves: Dict[str, Any], path: PathLike,
+                 title: str = "Anytime behaviour",
+                 theme: Optional[Union[str, Theme]] = None,
+                 placed_at: Optional[float] = None) -> Path:
+    """Mean gap over time, with the primal integral in the legend.
+
+    The mean rather than the median: once more than half the runs sit at the
+    reference the median is exactly 0 and stays there, which on a log axis is a
+    cliff that hides everything the remaining runs are still doing."""
+    th = resolve(theme)
+    with report_typography(9.0, placed_at):
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        grid = curves["grid"]
+        for i, (m, d) in enumerate(curves["methods"].items()):
+            if not d["runs"]:
+                continue
+            # Only from the moment every run holds a solution: before that the
+            # mean is over whichever runs happen to have one, and the first to
+            # get one are the easy instances, already at the reference.
+            pts = [(t, g) for t, g, sh in zip(grid, d["mean_gap"], d["solved_share"])
+                   if g is not None and sh >= 1.0]
+            if not pts:
+                continue
+            st = _series_style(th, m, i)
+            pi = d.get("primal_integral")
+            if pi is not None:
+                st["label"] = f"{st['label']} (primal integral {pi:.3f})"
+            ax.step([t for t, _ in pts], [max(g, 1e-3) for _, g in pts],
+                    where="post", **st)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("seconds into the run (log)")
+        ax.set_ylabel("mean gap to reference over runs, % (log)")
+        ax.set_title(title)
+        ax.legend(loc="lower left")
+        fig.tight_layout()
+        return save_figure(fig, path)
+
+
+def plot_ttt(ttt: Dict[str, Any], path: PathLike,
+             title: str = "Time to target",
+             theme: Optional[Union[str, Theme]] = None,
+             placed_at: Optional[float] = None) -> Path:
+    th = resolve(theme)
+    with report_typography(9.0, placed_at):
+        fig, ax = plt.subplots(figsize=(9, 4.5))
+        for i, (m, d) in enumerate(ttt["methods"].items()):
+            if not d["runs"]:
+                continue
+            st = _series_style(th, m, i)
+            st["label"] = f"{st['label']} (reached {d['success_rate']:.0%})"
+            xs = [max(x, 1e-3) for x in d["xs"]]
+            ax.step([1e-3] + xs, [0.0] + d["ys"], where="post", **st)
+        ax.set_xscale("log")
+        ax.set_xlabel("seconds until within "
+                      f"{ttt['eps_pct']:g}% of the reference (log)")
+        ax.set_ylabel("share of runs")
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_title(title)
+        ax.legend(loc="upper left")
+        fig.tight_layout()
+        return save_figure(fig, path)

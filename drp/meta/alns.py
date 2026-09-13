@@ -68,6 +68,9 @@ class ALNSResult:
     destroy_weights: dict = field(default_factory=dict)
     repair_weights: dict = field(default_factory=dict)
     trace: Optional[MetaTrace] = None
+    #: ``(seconds, energy)`` at the start and at every new best -- the anytime
+    #: curve (roadmap §6). Always on; appended only when the best improves.
+    anytime: List[Tuple[float, float]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +236,22 @@ REPAIR_OPS: List[Tuple[str, Callable]] = [
 ]
 
 
+def _select_ops(pool: List[Tuple[str, Callable]],
+                names: Optional[Sequence[str]],
+                kind: str) -> List[Tuple[str, Callable]]:
+    """The named subset of an operator pool, in the pool's own order."""
+    if names is None:
+        return list(pool)
+    known = [name for name, _ in pool]
+    unknown = [n for n in names if n not in known]
+    if unknown:
+        raise ValueError(f"unknown {kind} operator(s) {unknown}; choose from {known}")
+    chosen = [op for op in pool if op[0] in set(names)]
+    if not chosen:
+        raise ValueError(f"at least one {kind} operator is needed")
+    return chosen
+
+
 def _roulette(weights: List[float], rng: random.Random) -> int:
     total = sum(weights)
     if total <= 0:
@@ -259,6 +278,9 @@ def solve_alns(inst: DRPInstance,
                max_destroy: float = 0.40,
                absolute_max: int = 8,
                noise: float = 0.03,
+               destroy_ops: Optional[Sequence[str]] = None,
+               repair_ops: Optional[Sequence[str]] = None,
+               construct_start: bool = True,
                trace: bool = False,
                trace_max_samples: int = 3000) -> ALNSResult:
     """Run ALNS.
@@ -278,7 +300,16 @@ def solve_alns(inst: DRPInstance,
     Opt-in and free when off. For a fixed iteration budget it changes nothing;
     under a wall-clock limit it costs a little time, so fewer iterations fit --
     which is why `bench` and `compare` leave it off.
+
+    `destroy_ops` / `repair_ops` restrict the operator pool to the named
+    subset of `DESTROY_OPS` / `REPAIR_OPS` (default: all of them). They exist
+    for ablation studies (roadmap §6): the only way to know an operator earns
+    its place is to take it away and measure. `construct_start=False` makes a
+    run without `warm_tour` start from a random tour instead of building one,
+    which is what a cold-start ablation needs.
     """
+    destroy_pool = _select_ops(DESTROY_OPS, destroy_ops, "destroy")
+    repair_pool = _select_ops(REPAIR_OPS, repair_ops, "repair")
     rng = random.Random(seed)
     t0 = time.time()
     res = ALNSResult()
@@ -287,8 +318,11 @@ def solve_alns(inst: DRPInstance,
         sol, e = split(inst, tour)
         return e, sol
 
-    cur = list(warm_tour) if warm_tour else (warm_start_tour(inst)
-                                             or random_tour(inst, rng))
+    if warm_tour:
+        cur = list(warm_tour)
+    else:
+        cur = ((warm_start_tour(inst) if construct_start else None)
+               or random_tour(inst, rng))
     cur_e, cur_sol = energy_of(cur)
     tries = 0
     while math.isinf(cur_e) and tries < 200:
@@ -300,9 +334,10 @@ def solve_alns(inst: DRPInstance,
         return res
 
     best, best_e, best_sol = cur[:], cur_e, cur_sol
+    res.anytime.append((time.time() - t0, best_e))
     T = max(start_temp_factor * best_e, 1e-6)
 
-    nd, nr = len(DESTROY_OPS), len(REPAIR_OPS)
+    nd, nr = len(destroy_pool), len(repair_pool)
     dw, rw = [1.0] * nd, [1.0] * nr
     dscore, rscore = [0.0] * nd, [0.0] * nr
     dused, rused = [0] * nd, [0] * nr
@@ -314,8 +349,8 @@ def solve_alns(inst: DRPInstance,
                                 "cooling": cooling, "T0": T, "seed": seed,
                                 "time_limit": time_limit,
                                 "start_temp_factor": start_temp_factor})
-        tr.trace.destroy_ops = [name for name, _ in DESTROY_OPS]
-        tr.trace.repair_ops = [name for name, _ in REPAIR_OPS]
+        tr.trace.destroy_ops = [name for name, _ in destroy_pool]
+        tr.trace.repair_ops = [name for name, _ in repair_pool]
 
     # How much to tear down each iteration.
     #
@@ -340,10 +375,10 @@ def solve_alns(inst: DRPInstance,
         rused[ri] += 1
 
         q = rng.randint(lo, min(hi, max(lo, n_cust - 1)))
-        remaining, removed = DESTROY_OPS[di][1](inst, cur, q, rng)
+        remaining, removed = destroy_pool[di][1](inst, cur, q, rng)
         if not removed:
             continue
-        cand = REPAIR_OPS[ri][1](inst, remaining, removed, rng, noise)
+        cand = repair_pool[ri][1](inst, remaining, removed, rng, noise)
 
         ce, csol = energy_of(cand)
         if math.isinf(ce):
@@ -361,6 +396,7 @@ def solve_alns(inst: DRPInstance,
             cur, cur_e, cur_sol = cand, ce, csol
             if cur_e < best_e - 1e-9:
                 best, best_e, best_sol = cur[:], cur_e, cur_sol
+                res.anytime.append((time.time() - t0, best_e))
                 dscore[di] += SCORE_NEW_BEST
                 rscore[ri] += SCORE_NEW_BEST
                 event = "new_best"
@@ -407,8 +443,8 @@ def solve_alns(inst: DRPInstance,
     res.best_solution = best_sol
     res.best_energy = best_e
     res.time = time.time() - t0
-    res.destroy_weights = {DESTROY_OPS[i][0]: round(dw[i], 3) for i in range(nd)}
-    res.repair_weights = {REPAIR_OPS[i][0]: round(rw[i], 3) for i in range(nr)}
+    res.destroy_weights = {destroy_pool[i][0]: round(dw[i], 3) for i in range(nd)}
+    res.repair_weights = {repair_pool[i][0]: round(rw[i], 3) for i in range(nr)}
     if tr is not None:
         last = (MetaSample(step=res.iterations - 1, t=res.time, best=best_e,
                            current=cur_e, temperature=T)
