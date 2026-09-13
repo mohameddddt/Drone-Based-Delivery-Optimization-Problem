@@ -25,14 +25,14 @@ which is also how three geodesic defects in that page were found. Every view is 
 in [docs/VISUALISATION.md](docs/VISUALISATION.md). **§2.1's interactive planner is now in
 too** — `drp serve` starts a local server, place stops and a fleet in a browser instead of
 writing JSON, then solve and see the same three existing views embedded on the result. Its
-stretch goals (a real-geography toggle and drawing no-fly zones) are not built. The embedded
+polygonal no-fly drawing stretch goal is now in; a real-geography toggle remains. The embedded
 replay now loads Solver Vision lazily, so its five-second ALNS result is never replaced or
 held up by the explanatory B&B trace. The §7–8 service and most of P5 are not started.
 
 | Phase | Status |
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
-| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — its embedded replay loads Solver Vision on request), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
+| **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar placement and polygon drawing, its embedded replay loads Solver Vision on request), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
 | **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; performance profiles, anytime/TTT curves, ablations, hardness correlation ✅; wind ✗ |
 | **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅, local synchronous REST solve ✅; Docker, simulator and docs site ✗ |
 | **P5 Push it** | ✗ Not started |
@@ -915,7 +915,7 @@ placement surfacing its reason, no horizontal overflow at 430 px, the ground
 layer drawing real terrain with every label at a distinct position, dragging
 the depot changing what actually gets solved, and the embedded replay growing
 to its real content height instead of carrying its own internal scrollbar.
-All 80 browser tests (71 across the standalone pages + 9 planner tests) and the 430-test
+All 82 browser tests (71 across the standalone pages + 11 planner tests) and the 430-test
 fast suite pass; five absent-CVRPLIB tests skip normally when their third-party data is not
 installed.
 
@@ -927,11 +927,21 @@ route prefixes really matched a recorded B&B node; an ALNS solution is still
 an ALNS solution, and the explanatory B&B search neither substitutes nor
 changes it. The ordinary five-second ALNS request remains exactly that.
 
-**What this version deliberately does not do**, per the roadmap's own
-scoping of a first version: no real-geography toggle (the plane is a plain
-100x100 square with an *invented* city on it, not the Pontianak geodesic
-instance or its OSM basemap), and no drawing no-fly zones. Those are the two
-remaining §2.1 stretch goals.
+**Polygon drawing is now a complete planner slice.** The no-fly card enters a
+distinct drawing mode: click three or more vertices, click the first to close,
+then remove a completed area from the same card if needed; `Esc` and Cancel
+discard a draft. Numeric X/Y inputs plus **Add point** provide the equivalent
+keyboard path. The completed polygon is drawn on the planner map and posted
+as the established `drp-instance/v1` `nofly.polygons` field, so the normal
+instance parser, visibility-graph distance matrix, unmodified solvers and
+embedded replay see precisely the same geometry. The boundary rejects a
+polygon over an existing depot/stop and later refuses a stop/depot placement
+inside a completed zone. Two focused browser tests prove a three-vertex zone
+reaches the replay payload and that keyboard coordinates draw one; a live phone-width pass drew, removed and
+cancelled zones, including an invalid polygon around the depot. No solver,
+geometry or profiling code changed. The measured behavior deliberately leaves
+the planner planar: the remaining §2.1 stretch goal is real-geography
+placement/replay, not a second geometry format.
 
 **A round of user feedback landed three fixes on top of the first version.**
 The placement map had started as a bare grid; it now draws the same invented
@@ -970,7 +980,7 @@ be on it at a given moment. Fixed by picking the city once, at page load
 to the depot, so dragging the depot moves the city, but the city itself never
 changes shape.
 
-`tests/browser/test_page_planner.py` grows to 8 tests: one asserting every
+`tests/browser/test_page_planner.py` grew to 9 tests: one asserting every
 ground label has a distinct position, and one asserting the ground layer's
 geometry is byte-identical before and after placing and removing several
 stops.
@@ -2022,8 +2032,9 @@ Everything below was executed, not assumed.
   geographic instances against 14–99% on synthetic instances of the same size — the
   measurement behind the tightness finding, and the reason SA sits on its warm start.
 - **The planner** (§2.1): `drp serve`, run from an empty directory, solves a placed
-  instance and writes nothing into that directory. All 75 browser tests pass (67
-  existing + 8 new), the 12 new server tests pass, and the fast suite (404 tests here)
+  instance and writes nothing into that directory. All 82 browser tests pass (71
+  existing + 11 planner tests), the 12 server tests pass, and the fast suite (432 passing,
+  5 normally skipped here)
   is unaffected. Checked by hand, not just by test, in a real headless-Chromium
   screenshot at 1440 px and 430 px — which is what caught the results tabs opening
   below the fold on the first pass, and (on later rounds of feedback) a blank
@@ -2095,7 +2106,7 @@ Listed so nothing looks finished that isn't.
 
 | Roadmap | Item | Note |
 |---|---|---|
-| §2.1 | Interactive 2D map, drag-and-drop what-if | ◐ Core landed (`drp serve` — see its section above): place stops, set the fleet, solve, see the result in the existing three views; Solver Vision now loads lazily into the embedded replay from a separate traced B&B run, leaving the ALNS solution unchanged. Stretch not built: real-geography toggle, no-fly drawing |
+| §2.1 | Interactive 2D map, drag-and-drop what-if | ◐ Core landed (`drp serve` — see its section above): place stops, set the fleet, draw/remove planar polygonal no-fly zones, solve, see the result in the existing three views; Solver Vision now loads lazily into the embedded replay from a separate traced B&B run, leaving the ALNS solution unchanged. Stretch still not built: real-geography toggle/replay |
 | §2.3 | 3D altitude, extruded zones, terrain | P5 |
 | §2.4 | — | **Done.** B&B tree explorer, Solver Vision and the GA/SA/ALNS convergence dashboard are all in |
 | §2.5 | TikZ export | Considered and rejected, with the reasoning written down in `generate_figures.py`. `pgf` is the cheaper thing to try first if the report ever needs it. SVG/PDF export and the colour-blind-safe theme are done |

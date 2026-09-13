@@ -650,6 +650,18 @@ location** -- it is not fixed. The sidebar lists every stop with its
 coordinates and an editable demand field, and the fleet card sets drone
 count, payload and battery.
 
+**No-fly zones.** Select **Draw polygon**, click three or more vertices around
+the restricted area, then click the first vertex to close it. The completed
+area is shaded and listed with a remove button; `Esc` or **Cancel** abandons
+an unfinished drawing. A zone cannot close over the depot or a delivery stop,
+and a completed zone refuses a later stop or depot move into its interior.
+The same drawing mode exposes numeric X/Y controls and an **Add point** button
+for keyboard use; enter the first coordinate again to close the polygon.
+The planner sends these areas as the existing `drp-instance/v1`
+`nofly.polygons` field, so the unmodified visibility-graph distance matrix,
+solvers and replay all use the same obstacle geometry. This is planar drawing
+only: it does not make a geographic basemap or geodesic planner.
+
 It is not a blank grid: the ground layer draws the same invented aeronautical
 chart the flight replay draws for a synthetic instance -- a river, a radial
 road network centred on the depot, built-up blobs, parks and district names

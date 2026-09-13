@@ -14,6 +14,7 @@
     --accent:#2C4F55; --accent-2:#3E7078; --accent-ink:#FFFFFF;
     --f-display:'Familjen Grotesk',system-ui,sans-serif;
     --f-mono:'Courier Prime',ui-monospace,Consolas,monospace;
+    --sp-2:8px;
     --r:5px;
   }
   *{box-sizing:border-box;}
@@ -76,6 +77,20 @@
     padding:4px 0;font-size:11.5px;color:var(--muted);}
   .field input{width:88px;padding:4px 6px;border:1px solid var(--line-2);border-radius:4px;
     background:var(--paper);color:var(--ink);font-size:11.5px;text-align:right;}
+  .zone-tools{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;}
+  .zone-tools .run-btn.on{background:var(--restricted);border-color:var(--restricted);
+    color:var(--accent-ink);}
+  .zone-coordinates{display:grid;grid-template-columns:1fr 1fr auto;gap:var(--sp-2);margin-top:var(--sp-2);}
+  .zone-coordinates[hidden]{display:none;}
+  .zone-coordinates label{display:flex;align-items:center;gap:var(--sp-2);font-size:10px;color:var(--muted);}
+  .zone-coordinates input{width:100%;min-width:0;padding:var(--sp-2);border:1px solid var(--line-2);
+    border-radius:3px;background:var(--paper);color:var(--ink);font-size:10.5px;text-align:right;}
+  .zone-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);
+    padding:var(--sp-2) 0;border-bottom:1px dotted var(--line);font-size:10.5px;color:var(--muted);}
+  .zone-row:last-child{border-bottom:0;}
+  .zone-row button{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
+    border-radius:3px;width:26px;height:26px;cursor:pointer;line-height:1;}
+  .zone-row button:hover{background:var(--caution);border-color:var(--caution);color:var(--accent-ink);}
 
   .stop-row{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10.5px;
     color:var(--muted);border-bottom:1px dotted var(--line);}
@@ -86,12 +101,12 @@
   .stop-row input{width:52px;padding:3px 4px;border:1px solid var(--line-2);border-radius:3px;
     background:var(--paper);color:var(--ink);font-size:10.5px;text-align:right;}
   .stop-row button{border:1px solid var(--line-2);background:var(--paper);color:var(--muted);
-    border-radius:3px;width:20px;height:20px;cursor:pointer;line-height:1;}
+    border-radius:3px;width:24px;height:24px;cursor:pointer;line-height:1;}
   .stop-row button:hover{background:var(--caution);color:var(--accent-ink);border-color:var(--caution);}
   .stop-row-head{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
     color:var(--muted-2);border-bottom:1px solid var(--line);padding-bottom:5px;}
   .stop-row-head .demand-hd{width:52px;text-align:right;cursor:help;}
-  .stop-row-head span:last-child{width:20px;}
+  .stop-row-head span:last-child{width:24px;}
   .empty-note{font-size:10.5px;color:var(--muted-2);font-style:italic;padding:4px 0;}
 
   .solve-btn{width:100%;border:1px solid var(--accent);background:var(--accent);
@@ -178,6 +193,7 @@
         <g id="world">
           <g id="lyrGround"></g>
           <g id="lyrGrat"></g>
+          <g id="lyrZones"></g>
           <g id="lyrStops"></g>
           <g id="lyrHub"></g>
         </g>
@@ -190,7 +206,7 @@
           <button id="zOut" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
           <button id="zRst" title="Reset view (0)" aria-label="Reset view">RST</button>
         </div>
-        <div class="plate hint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it &middot; drag the depot to relocate it</div>
+        <div class="plate hint" id="mapHint">Click to add a stop &middot; drag a stop to move it &middot; click a stop to remove it &middot; drag the depot to relocate it</div>
         <div class="badflag" id="badFlag" hidden></div>
       </div>
     </div>
@@ -203,6 +219,19 @@
           <span>Payload / drone</span><input id="fPayload" type="number" min="0.1" step="0.5"></div>
         <div class="field" title="The energy budget for one drone's whole route, out and back.">
           <span>Battery / drone</span><input id="fBattery" type="number" min="1" step="5"></div>
+      </section>
+      <section class="card">
+        <h2>No-fly zones <em id="zoneCount">0</em></h2>
+        <div class="zone-tools">
+          <button class="run-btn" id="zoneMode" type="button">Draw polygon</button>
+          <button class="run-btn" id="cancelZone" type="button" hidden>Cancel</button>
+        </div>
+        <div class="zone-coordinates" id="zoneCoordinates" hidden>
+          <label>X <input id="zoneX" type="number" min="0" max="100" step="0.1"></label>
+          <label>Y <input id="zoneY" type="number" min="0" max="100" step="0.1"></label>
+          <button class="run-btn" id="addZoneVertex" type="button">Add point</button>
+        </div>
+        <div id="zoneList"><div class="empty-note">draw three or more vertices, then click the first to close</div></div>
       </section>
       <section class="card">
         <h2>Stops <em id="stopCount">0</em></h2>
@@ -330,6 +359,7 @@ const defs = document.getElementById("mapDefs");
 const L = {
   ground: document.getElementById("lyrGround"),
   grat: document.getElementById("lyrGrat"),
+  zones: document.getElementById("lyrZones"),
   stops: document.getElementById("lyrStops"),
   hub: document.getElementById("lyrHub"),
 };
@@ -431,6 +461,10 @@ svg.addEventListener("dblclick", resetView);
 window.addEventListener("keydown", ev => {
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return;
+  if (zoneDrawing && ev.key === "Escape"){
+    cancelZoneDrawing();
+    return;
+  }
   const step = camera.w * 0.08;
   if (ev.key === "ArrowLeft"){ camera.x -= step; clampCam(); applyCamera(); }
   else if (ev.key === "ArrowRight"){ camera.x += step; clampCam(); applyCamera(); }
@@ -733,6 +767,9 @@ function drawBasemap(){
 // ===========================================================================
 let stops = [];           // [{x, y, demand}], array order == future customer id
 let badStopIndex = null;  // 1-based index the last solve flagged, or null
+let zones = [];
+let draftZone = [];
+let zoneDrawing = false;
 
 const fleet = {
   n_drones: DATA.fleet.n_drones,
@@ -747,6 +784,10 @@ function addStop(w){
   }
   const x = clamp(w[0], PLANE.xmin, PLANE.xmax);
   const y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  if (pointInAnyZone([x, y])){
+    setSolveStatus("a delivery stop cannot be inside a no-fly zone", true);
+    return;
+  }
   stops.push({x, y, demand: DATA.demand_default});
   badStopIndex = null;
   render(); renderStopsList();
@@ -759,19 +800,122 @@ function removeStopAt(i){
 function moveStopAt(i, w){
   const s = stops[i];
   if (!s) return;
-  s.x = clamp(w[0], PLANE.xmin, PLANE.xmax);
-  s.y = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  const point = [clamp(w[0], PLANE.xmin, PLANE.xmax), clamp(w[1], PLANE.ymin, PLANE.ymax)];
+  if (pointInAnyZone(point)) return;
+  s.x = point[0];
+  s.y = point[1];
   render();
 }
 function moveDepotTo(w){
-  depot[0] = clamp(w[0], PLANE.xmin, PLANE.xmax);
-  depot[1] = clamp(w[1], PLANE.ymin, PLANE.ymax);
+  const point = [clamp(w[0], PLANE.xmin, PLANE.xmax), clamp(w[1], PLANE.ymin, PLANE.ymax)];
+  if (pointInAnyZone(point)) return;
+  depot[0] = point[0];
+  depot[1] = point[1];
   render();
 }
 
+function pointInPolygon(point, polygon){
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++){
+    const a = polygon[i], b = polygon[j];
+    if ((a[1] > point[1]) !== (b[1] > point[1])
+        && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInAnyZone(point){ return zones.some(zone => pointInPolygon(point, zone)); }
+
+function updateZoneControls(){
+  const mode = document.getElementById("zoneMode");
+  const cancel = document.getElementById("cancelZone");
+  const coordinates = document.getElementById("zoneCoordinates");
+  mode.classList.toggle("on", zoneDrawing);
+  mode.textContent = zoneDrawing ? "Drawing polygon" : "Draw polygon";
+  cancel.hidden = !zoneDrawing;
+  coordinates.hidden = !zoneDrawing;
+  document.getElementById("mapHint").textContent = zoneDrawing
+    ? "Click vertices around restricted airspace · click the first vertex to close · Esc cancels"
+    : "Click to add a stop · drag a stop to move it · click a stop to remove it · drag the depot to relocate it";
+  document.getElementById("zoneCount").textContent = String(zones.length);
+}
+
+function renderZonesList(){
+  const box = document.getElementById("zoneList");
+  box.innerHTML = "";
+  if (zones.length === 0){
+    box.innerHTML = '<div class="empty-note">draw three or more vertices, then click the first to close</div>';
+    return;
+  }
+  zones.forEach((zone, index) => {
+    const row = document.createElement("div");
+    row.className = "zone-row";
+    const label = document.createElement("span");
+    label.textContent = `restricted area ${index + 1} · ${zone.length} vertices`;
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = `remove restricted area ${index + 1}`;
+    remove.setAttribute("aria-label", `Remove restricted area ${index + 1}`);
+    remove.addEventListener("click", () => {
+      zones.splice(index, 1);
+      render(); renderZonesList(); updateZoneControls();
+    });
+    row.append(label, remove);
+    box.appendChild(row);
+  });
+}
+
+function cancelZoneDrawing(){
+  draftZone = [];
+  zoneDrawing = false;
+  render(); updateZoneControls();
+}
+
+function finishZone(){
+  if (draftZone.length < 3){
+    setSolveStatus("a no-fly polygon needs at least three vertices", true);
+    return;
+  }
+  if ([depot, ...stops.map(stop => [stop.x, stop.y])]
+      .some(point => pointInPolygon(point, draftZone))){
+    setSolveStatus("a no-fly zone cannot contain the depot or a delivery stop", true);
+    return;
+  }
+  zones.push(draftZone);
+  draftZone = [];
+  zoneDrawing = false;
+  render(); renderZonesList(); updateZoneControls();
+}
+
+function addZoneVertex(point){
+  const next = [clamp(point[0], PLANE.xmin, PLANE.xmax), clamp(point[1], PLANE.ymin, PLANE.ymax)];
+  if (draftZone.length >= 3 && Math.hypot(next[0] - draftZone[0][0], next[1] - draftZone[0][1]) <= unit * 4){
+    finishZone();
+    return;
+  }
+  draftZone.push(next);
+  render(); updateZoneControls();
+}
+
 function render(){
+  while (L.zones.firstChild) L.zones.removeChild(L.zones.firstChild);
   while (L.stops.firstChild) L.stops.removeChild(L.stops.firstChild);
   while (L.hub.firstChild) L.hub.removeChild(L.hub.firstChild);
+
+  zones.forEach((zone, index) => {
+    const points = zone.map(toSvg).map(point => point.join(",")).join(" ");
+    const g = el("g", {"data-role":"zone", "data-zone":String(index)});
+    g.appendChild(el("polygon", {points, fill:"var(--restricted)", "fill-opacity":"0.19",
+      stroke:"var(--restricted)", "stroke-width":0.45*unit*symK}));
+    L.zones.appendChild(g);
+  });
+  if (draftZone.length > 0){
+    const points = draftZone.map(toSvg).map(point => point.join(",")).join(" ");
+    L.zones.appendChild(el("polyline", {points, fill:"none", stroke:"var(--restricted)",
+      "stroke-width":0.5*unit*symK, "stroke-dasharray":`${unit*1.2},${unit*0.8}`}));
+    draftZone.map(toSvg).forEach(point => L.zones.appendChild(el("circle", {cx:point[0], cy:point[1],
+      r:0.9*unit*symK, fill:"var(--restricted)"})));
+  }
 
   const [hx, hy] = toSvg(depot);
   const hr = 2.6 * unit * symK;
@@ -848,6 +992,12 @@ let moved = 0;
 
 svg.addEventListener("pointerdown", ev => {
   svg.setPointerCapture(ev.pointerId);
+  if (zoneDrawing){
+    dragMode = "zone";
+    dragStart = {x: ev.clientX, y: ev.clientY};
+    moved = 0;
+    return;
+  }
   const stopEl = ev.target.closest && ev.target.closest("[data-stop]");
   const depotEl = !stopEl && ev.target.closest && ev.target.closest('[data-role="depot"]');
   dragStart = {x: ev.clientX, y: ev.clientY};
@@ -886,7 +1036,9 @@ svg.addEventListener("pointermove", ev => {
 svg.addEventListener("pointerup", ev => {
   try { svg.releasePointerCapture(ev.pointerId); } catch (e) { /* already released */ }
   svg.classList.remove("panning");
-  if (dragMode === "pan" && moved < 4){
+  if (dragMode === "zone" && moved < 4){
+    addZoneVertex(screenToWorld(ev));
+  } else if (dragMode === "pan" && moved < 4){
     addStop(screenToWorld(ev));
   } else if (dragMode === "stop"){
     if (moved < 4) removeStopAt(dragIndex);
@@ -895,6 +1047,35 @@ svg.addEventListener("pointerup", ev => {
     drawBasemap();
   }
   dragMode = null; dragIndex = null;
+});
+
+document.getElementById("zoneMode").addEventListener("click", () => {
+  if (zoneDrawing) cancelZoneDrawing();
+  else {
+    zoneDrawing = true;
+    draftZone = [];
+    render(); updateZoneControls();
+  }
+});
+document.getElementById("cancelZone").addEventListener("click", cancelZoneDrawing);
+function addZoneVertexFromCoordinates(){
+  const xInput = document.getElementById("zoneX");
+  const yInput = document.getElementById("zoneY");
+  if (xInput.value.trim() === "" || yInput.value.trim() === ""){
+    setSolveStatus("enter numeric x and y coordinates for the polygon vertex", true);
+    return;
+  }
+  const x = Number(xInput.value);
+  const y = Number(yInput.value);
+  if (!Number.isFinite(x) || !Number.isFinite(y)){
+    setSolveStatus("enter numeric x and y coordinates for the polygon vertex", true);
+    return;
+  }
+  addZoneVertex([x, y]);
+}
+document.getElementById("addZoneVertex").addEventListener("click", addZoneVertexFromCoordinates);
+document.getElementById("zoneY").addEventListener("keydown", ev => {
+  if (ev.key === "Enter") addZoneVertexFromCoordinates();
 });
 
 // ===========================================================================
@@ -940,7 +1121,7 @@ function buildInstancePayload(){
     round_distances: false,
     depot: depot,
     customers: stops.map((s, i) => ({id: i + 1, coord: [s.x, s.y], demand: s.demand})),
-    nofly: {edges: [], polygons: []},
+    nofly: {edges: [], polygons: zones.map(zone => zone.map(point => point.slice()))},
     seed: null,
   };
 }
@@ -1197,6 +1378,8 @@ function autoSizeIframe(frame){
 drawBasemap();
 applyCamera();
 renderStopsList();
+renderZonesList();
+updateZoneControls();
 resetDashTreeTabs();
 
 })();
