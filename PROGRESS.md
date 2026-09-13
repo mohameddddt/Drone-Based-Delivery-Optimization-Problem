@@ -2103,9 +2103,12 @@ Listed so nothing looks finished that isn't.
 
 ### Two honest caveats
 
-1. **`report/report.tex` has never been compiled.** No LaTeX toolchain on this machine. It
-   passes a structural check and every include target exists, but run
-   `pdflatex -output-directory=report report/report.tex` before relying on it.
+1. **`report/report.tex` has now been compiled and read as a PDF.** With TinyTeX's
+   `pdflatex`, two passes resolve the cross-references; the rendered 12-page A4 PDF has
+   all seven figures and all three generated tables in place, with no page overflow. The
+   significance table needed `\footnotesize` rather than `\small` to keep its final
+   column inside the text block. This checks the committed synthetic-study artefact, not
+   the geographic companion suite below.
 
 2. **The *report's* study still uses synthetic instances.** The real geography is now
    wired in — `geo_benchmark_suite()` builds twelve instances from
