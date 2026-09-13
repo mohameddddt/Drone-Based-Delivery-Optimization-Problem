@@ -39,7 +39,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
@@ -64,6 +64,10 @@ class SAResult:
     time: float = 0.0
     reheats: int = 0
     accepted: int = 0
+    #: ``(seconds, energy)`` at the start and at every new best -- the anytime
+    #: curve (roadmap §6). Always on: it is appended only when the best
+    #: improves, which is rare, and consumes no random numbers.
+    anytime: List[Tuple[float, float]] = field(default_factory=list)
     accepted_uphill: int = 0
     trace: Optional[MetaTrace] = None
 
@@ -109,6 +113,8 @@ def solve_sa(inst: DRPInstance,
         tries += 1
 
     best, best_e, best_sol = cur[:], cur_e, cur_sol
+    if math.isfinite(best_e):
+        res.anytime.append((time.time() - t0, best_e))
 
     # Calibrate the starting temperature so that early acceptance ~ init_accept.
     deltas = []
@@ -175,6 +181,7 @@ def solve_sa(inst: DRPInstance,
                 best, best_e, best_sol = cur[:], cur_e, cur_sol
                 stagnation = 0
                 event = "new_best"
+                res.anytime.append((time.time() - t0, best_e))
             else:
                 stagnation += 1
                 event = "improved" if delta < 0 else "accepted"

@@ -1,6 +1,6 @@
 # Project progress
 
-Status of `main`, tracked against the project roadmap. Updated 2026-09-11.
+Status of `main`, tracked against the project roadmap. Updated 2026-09-13.
 
 ## Where this stands
 
@@ -32,7 +32,7 @@ embedded replay) are not built. The §7–8 service and most of P5 are not start
 |---|---|
 | **P1 Foundation** | ✅ **Complete** — package, formats, CLI, tests, results store, CI |
 | **P2 See it** | ◐ Partial — animated playback ✅ (GIF + pan/zoom GSAP flight-replay page), B&B tree explorer ✅, Solver Vision ✅, convergence dashboard ✅, interactive planner ✅ (`drp serve`; planar only — no real-geography toggle, no-fly drawing or Solver Vision toggle yet), visualisation guide ✅, SVG/PDF export ✅, colour-blind-safe theme ✅, browser tests ✅; 3D ✗ |
-| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; wind ✗, performance profiles/ablations ✗ |
+| **P3 Mean it** | ◐ Partial — polygonal no-fly ✅, visibility detours ✅, ALNS ✅, dual gap ✅, stronger bound ✅, significance testing ✅; performance profiles, anytime/TTT curves, ablations, hardness correlation ✅; wind ✗ |
 | **P4 Use it** | ◐ Partial — scenario builder ✅, real geography ✅, CVRPLIB/Solomon import ✅, QGC mission export ✅, geocoding ✅, OSM basemaps ✅; REST service ✗ |
 | **P5 Push it** | ✗ Not started |
 
@@ -1298,7 +1298,7 @@ change greedy's energy on any instance that already worked; the notebook parity 
 confirms that. All 74 now construct feasibly.
 
 **The study.** `python run_experiments.py --suite cvrplib --seeds 3 --meta-time 5
---bnb-time 5`, group `run_20260910_194239` in `results/cvrplib_runs.db`, 1,110 runs,
+--bnb-time 5`, group `run_20260910_194239` in `results/cvrplib_runs.db`, 814 runs (greedy and B&B once per instance, the three metaheuristics x 3 seeds; this line previously said 1,110),
 3,830 s. At `beta = 0` on the rounded `EUC_2D` metric this *is* the published problem, so
 the gaps below are gaps to genuine optima, not to our own best-so-far.
 
@@ -1790,14 +1790,188 @@ published table exactly (not just approximately) for `k = 2..10`, a synthetic
 consistently-better method is correctly detected as significant while a method compared
 against itself is not, and the bootstrap CI brackets a known mean.
 
-**Not built**: performance profiles (Dolan–Moré), ECDF of solution quality, time-to-target
-curves, anytime curves, ablation studies and instance-hardness correlation are still open
-— §6's significance-testing half is done, its profiling/ablation half is not.
+**The profiling half, listed here until now as not built, follows.**
+
+### §6 Profiles, anytime behaviour, hardness and ablations
+
+`drp/eval/profiles.py` works on plain results-store rows, so every stored study can be
+analysed without re-solving. `run_analysis.py` reads a group and writes
+`results/analysis/<tag>.json` plus figures; `run_ablation.py` runs and tests the ablation.
+Gaps use the same reference as the rest of this document — a proven B&B optimum, else the
+best any method found — except on CVRPLIB, where the **published** optimum is used (73 of
+the 74 files carry one).
+
+- **Performance profiles** (Dolan–Moré), on each method's *mean over seeds*: `rho(tau)` is
+  the share of instances on which a method is within a factor `tau` of the best method.
+- **ECDF of solution quality**, per run rather than per instance.
+- **Anytime curves and the primal integral** (Berthold). GA, SA and ALNS now record
+  `(seconds, energy)` at their start and at every new best, stored as `extra["anytime"]`.
+  It is appended only on an improvement and draws no random numbers, so it cannot change
+  what a solver returns for a fixed iteration budget. Greedy stores one point. B&B stores
+  its warm start at `t = 0` and its final incumbent, and is left out of the anytime and TTT
+  figures: with two points its last improvement would appear to arrive when it *stopped*.
+- **Time-to-target** ECDFs (Aiex et al.), target = reference × 1.01. Runs that never get
+  there are counted as censored, not dropped.
+- **Instance-hardness correlation**: `n`, `K`, customers per drone, fleet utilisation,
+  battery slack (battery over the costliest single-customer trip), the Clark–Evans
+  clustering ratio, and the share of random giant tours that Split feasibly — the
+  tightness probe from the Pontianak diagnosis, now a reusable measurement. Spearman
+  correlation against each method's mean gap, raw and partialled on `n`. Seven features
+  and up to five methods per suite, uncorrected: it is a screen, and is reported as one.
+
+`tests/test_profiles.py` (25 tests) checks the analyses on rows whose answers are worked
+out by hand — profile values, a primal integral, ECDF denominators that count unsolved
+runs, a planted correlation recovered and a size proxy (`K = n/5`) partialled to nothing.
+On real runs, it checks that every trajectory is monotone and ends exactly at the returned
+energy.
+
+#### Performance profiles on every stored study
+
+`wins` is `rho(1)`; ties count for every tied method.
+
+| Suite (group) | Instances | Greedy | B&B | GA | SA | ALNS |
+|---|---|---|---|---|---|---|
+| Synthetic (`run_20260911_001011`) | 12 | 0% | 50% | 58% | **75%** | 58% |
+| Pontianak (`run_20260913_012846`) | 12 | 17% | 58% | 50% | 67% | **100%** |
+| Augerat A/B/P, vs published optima (`run_20260910_194239`) | 74 | 19% | 20% | 28% | 24% | **86%** |
+| Solomon `n = 25` (`run_20260911_004351`) | 56 | 0% | — | 14% | 0% | **86%** |
+| Solomon `n = 50` (`run_20260911_012614`) | 56 | 0% | — | 14% | 0% | **86%** |
+| Solomon `n = 100` (`run_20260911_020911`) | 56 | 52% | — | 52% | 52% | **100%** |
+
+The profiles add two things the rank tables did not say.
+
+- **What separates ALNS is its worst case.** On Augerat its worst ratio to the best method
+  is 1.074; every other method's is 1.46–1.49. It finishes within 10% of the best method on
+  all 74 instances, where the GA manages 88% and SA 84%. Averages and ranks had it winning;
+  the profile shows it also *never loses badly*.
+- **The synthetic suite is the exception, and the exception is SA.** SA is within 1% of
+  the best method on all 12 instances and wins 9; ALNS wins 7. That is §5.4's result — SA
+  with the best average rank on the study of record — seen from the other side, and it
+  holds only on the uniform, slack instances. ALNS dominates every literature suite and the
+  real geography.
+
+A discrepancy recorded rather than smoothed over: the ECDF puts ALNS's **median** gap to
+the published Augerat optima at 4.13%, where §3.3 reports 3.28%. Both are right. §3.3
+takes the best of three seeds per instance; this is over every run. The difference is the
+seed-to-seed spread.
+
+A note on the Solomon store: it holds six groups, and the `n = 100` group analysed here is
+`run_20260911_020911`, not the `run_20260911_020639` named in §3.3. No group of that name
+is in `results/solomon_runs.db`.
+
+#### Anytime behaviour: the Pontianak suite, re-run with trajectories
+
+`python run_experiments.py --suite geo --seeds 5 --meta-time 5 --bnb-time 20`, group
+`run_20260913_012846` in `results/geo_runs.db`: 204 runs, 978 s, machine at 3,766 Split
+evaluations/s. Final energies match the committed group `run_20260911_002752` to within
+seed noise (ALNS identical on all twelve; SA 30.6 against 30.5 on `P11`), so the
+trajectories describe the same searches.
+
+| Method | Primal integral | Runs reaching 1% of reference | Median time to get there |
+|---|---|---|---|
+| **ALNS** | **0.0084** | **93%** of 60 | 0.053 s |
+| Genetic Algorithm | 0.0194 | 78% | 0.051 s |
+| Simulated Annealing | 0.0383 | 78% | 0.165 s |
+| Greedy | 0.1034 | 17% | — |
+
+![Mean gap over time on the Pontianak suite](results/analysis/geo_anytime.png)
+
+**SA is a finisher, not an anytime method, and that is §5.4's schedule doing exactly what
+it was built to do.** SA's mean gap sits near 5% for the first three of its five seconds,
+then falls steeply as the temperature reaches its floor. Deriving the cooling rate from the
+clock makes SA anneal fully *by the deadline*, so interrupted at any earlier moment it has
+not converged. Its primal integral is 4.5x ALNS's, although it ends within 1% of it. No
+final-energy table could show this. The practical reading: for a planner that may be
+stopped early, ALNS is the right default, and SA's answer is only worth waiting for when
+the budget is known in advance.
+
+The curve is drawn only from the moment every run holds a solution. Before that, the mean
+covers whichever runs already have one — the easy instances, sitting at the reference.
+
+#### Instance hardness
+
+Partialling on `n` is what keeps this honest. On the synthetic and Pontianak suites nearly
+every feature correlates with every method's gap at `|rho| ≈ 0.6–0.9`, and almost all of it
+disappears once size is removed: twelve instances spanning `n = 5…30` cannot separate
+structure from size.
+
+The two larger suites can, and they confirm the earlier findings from a different angle.
+
+- **Augerat: utilisation is the hardness, independently of size.** Partialled on `n`,
+  utilisation against mean gap is **+0.49 to +0.62 for every method**, and the random-tour
+  feasibility share **−0.40 to −0.50**. That is §3.3's "the eight worst are all ≥ 97% full"
+  as a correlation over all 74. ALNS is the only method whose gap still tracks `n` itself
+  (`+0.50` raw): the others are frozen by capacity before size matters.
+- **Solomon: clustering decides what greedy leaves on the table; ALNS feels capacity
+  instead.** At `n = 25` and `n = 50` the Clark–Evans ratio correlates with the gaps of
+  greedy, the GA and SA at `+0.33` to `+0.89` — uniform instances leave more to win over
+  Clarke–Wright, clustered ones less, which is §3.3's reading of the Solomon table. Each
+  Solomon group has a single size, so there is no partial to report. ALNS's gap does not
+  follow clustering at all (`−0.03`, `+0.09`); it follows utilisation (`+0.59`, `+0.51`).
+  ALNS has already taken what the geography offers, and what is left is capacity pressure.
+
+#### Ablation: which components earn their place
+
+`python run_ablation.py`: 16 variants × the 11 instances where the full methods still
+disagree (synthetic `n ≥ 12`, Pontianak `n ≥ 15`) × 3 seeds × 5 s. That is 528 runs,
+44 min, group `run_20260913_015121` in `results/ablation_runs.db`. Each variant removes one
+component, runs on the same instances and seeds, and is compared with its full method by a
+paired Wilcoxon test over instances. The solver changes this needed are parameters, not
+copies: `solve_alns` takes `destroy_ops`, `repair_ops` and `construct_start`, and
+`solve_one` passes `options` through.
+
+| Variant | Mean gap | vs full | Worse / better | p | Primal integral |
+|---|---|---|---|---|---|
+| ALNS, full | 1.52% | | | | 0.0312 |
+| − random removal | 1.04% | −0.48 | 2 / 8 | 0.19 | 0.0271 |
+| − **worst removal** | **0.95%** | **−0.57** | **0 / 9** | **0.016** | 0.0280 |
+| − Shaw removal | 1.51% | −0.01 | 3 / 6 | 0.61 | 0.0293 |
+| − route removal | 1.41% | −0.11 | 5 / 5 | 0.93 | 0.0342 |
+| − greedy insertion | 1.03% | −0.49 | 2 / 7 | 0.20 | 0.0287 |
+| − regret-2 insertion | 1.55% | +0.03 | 4 / 6 | 0.93 | 0.0347 |
+| − regret-3 insertion | 0.96% | −0.57 | 2 / 8 | 0.063 | 0.0293 |
+| − adaptive weights | 1.05% | −0.47 | 3 / 6 | 0.27 | 0.0336 |
+| − repair noise | 1.80% | +0.28 | 7 / 4 | 0.21 | 0.0313 |
+| − constructed start | 1.16% | −0.60 | 2 / 6 | 0.12 | 0.0433 |
+| SA, full | 2.87% | | | | 0.0943 |
+| − **reheats** | **1.42%** | **−1.45** | **0 / 10** | **0.002** | 0.0833 |
+| − constructed start | 1.17% | −0.35 | 2 / 6 | 0.18 | 0.1282 |
+| GA, full | 2.28% | | | | 0.0426 |
+| − **constructed start** | **5.03%** | **+2.75** | **8 / 2** | **0.047** | 0.1279 |
+
+Thirteen comparisons, uncorrected. At Bonferroni's `0.05 / 13 = 0.0038` **only the SA
+reheat result survives**; read the rest as where to look next.
+
+- **SA's reheats hurt, decisively.** Never reheating improves 10 of 11 instances and halves
+  the mean gap. It is the §5.4 story a third time. A reheat resets the temperature to half
+  of `T0`, and the clock-driven schedule must then cool again from there inside a budget
+  it had already planned. The reheat predates that fix and was tuned for the old,
+  iteration-counted schedule. The obvious change — remove it, or have it re-plan on the
+  time remaining — is not made here, because it would move the study of record.
+- **Most of ALNS is not paying for itself at a 5-second budget.** Removing any one of six
+  components *lowers* the mean gap, worst removal significantly so. The likely mechanism is
+  §5.4's profile: `_insertion_costs` is 85% of an ALNS run, and with fewer operators the
+  adaptive layer spends fewer of its scarce iterations sampling ones that do not pay. The
+  ablation is consistent with that hypothesis and does not prove it. The test is a re-run
+  at a longer budget, where operator diversity should start to matter.
+- **Only the repair noise does visible work** (7 worse, 4 better without it), and not
+  significantly.
+- **The GA needs its warm start; SA and ALNS do not.** A GA seeded only with random tours
+  finishes 2.75 points worse. SA and ALNS end slightly *better* on average from a random
+  start, but their primal integrals rise by 36–39%. They recover the constructed start's
+  quality; they just spend time doing it.
+
+**What this changes in the ranking below.** It puts the cheap, evidenced experiment ahead
+of the expensive one. Before §5.2's penalty-based infeasibility or ejection chains, try SA
+without reheats and ALNS with a reduced operator set on the literature suites, at one short
+and one long budget. Both are parameter changes, and the ablation already says which way
+they point.
 
 ## Verified
 
 Everything below was executed, not assumed.
 
+- **The fast subset (`-m "not slow"`) passes in full on the §6 branch: 580 tests, 0 failures** (5 min 57 s). The full suite was not re-run for this branch.
 - **624 tests collected; 557 pass and 67 skip here** (~4 min for the whole suite, 540 of them in the fast subset). The skips are the Playwright pages, which need a chromium download; nothing fails.
 - Split matches brute-force enumeration on every tested tour.
 - B&B matches exhaustive enumeration on all instances small enough to enumerate.
@@ -1830,6 +2004,11 @@ Everything below was executed, not assumed.
 - A QGroundControl mission produced by this pipeline loads in QGroundControl.
 - All 74 published CVRPLIB optima reproduce exactly under this project's objective, pass
   its feasibility checker, and are never beaten by any of its five methods.
+- Every GA, SA and ALNS anytime trajectory is monotone and ends exactly at the energy
+  the solver returned; the profile, primal-integral, ECDF and partial-correlation code
+  reproduces hand-computed answers.
+- Removing SA's reheats improves 10 of 11 hard instances (`p = 0.002`, which survives a
+  Bonferroni correction over the 13 ablations).
 - Random giant tours Split into a *feasible* solution 0.4–0.6% of the time on the
   geographic instances against 14–99% on synthetic instances of the same size — the
   measurement behind the tightness finding, and the reason SA sits on its warm start.
@@ -1919,7 +2098,7 @@ Listed so nothing looks finished that isn't.
 | §5.2 | Tabu, VNS, memetic GA, ACO, island model | Only ALNS added |
 | §5.3 | Learned methods | Not started |
 | §5.4 | Performance | ◐ The Split decoder went from `O(K n^3)` to `O(n^2)`, 10-20x, in pure Python, and a profile now names the next bottleneck (`_insertion_costs`, 85% of an ALNS run at `n = 100`). Numba/Rust still not started, and `n = 100` is still out of reach at a 5 s budget |
-| §6 | Performance profiles, ECDF, time-to-target/anytime curves, ablations, instance-hardness correlation | Wilcoxon/Friedman+Nemenyi significance testing and bootstrap CIs landed (`drp/eval/stats.py`); the profiling and ablation half of §6 is still not started |
+| §6 | Performance profiles, ECDF, time-to-target/anytime curves, ablations, instance-hardness correlation | ✅ Landed — `drp/eval/profiles.py`, `run_analysis.py`, `run_ablation.py`. Still open: anytime curves for the synthetic and literature suites (their stored runs predate trajectories), an ablation at a longer budget, and a B&B incumbent timeline |
 | §7–8 | REST API, Docker, simulator, docs site | Not started |
 
 ### Two honest caveats
@@ -1980,8 +2159,10 @@ belongs to the harness. The concrete candidates are named and measured -- `_inse
 at 85% of an ALNS run, and an improving-move density of 0.025% on `RC101-50` where pure
 descent beats annealing outright.
 
-So the ranking now: make the search cheap enough to be worth analysing (§5.4's next
-bottleneck), then fix the neighbourhood or the acceptance (§5.2), then the bound. A
+So the ranking now: act on §6's ablation first — SA without reheats and ALNS with fewer
+operators are parameter changes with measured evidence behind them — then make the search
+cheap enough to be worth analysing (§5.4's next bottleneck), then fix the neighbourhood or
+the acceptance (§5.2), then the bound. A
 Held–Karp 1-tree or the flow formulation's LP relaxation remains the path to a bigger jump
 past `n ≈ 10` whenever the exact side becomes the priority again -- though note that on
 today's hardware the 20-second budget no longer proves `n = 10` at all, which makes the

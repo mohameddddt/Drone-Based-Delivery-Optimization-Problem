@@ -14,7 +14,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from drp.core.instance import DRPInstance
 from drp.core.solution import Solution
@@ -31,6 +31,9 @@ class GAResult:
     history: List[float] = field(default_factory=list)
     generations: int = 0
     time: float = 0.0
+    #: ``(seconds, energy)`` at the start and whenever the best improves --
+    #: the anytime curve (roadmap §6).
+    anytime: List[Tuple[float, float]] = field(default_factory=list)
     trace: Optional[MetaTrace] = None
 
 
@@ -96,6 +99,9 @@ def solve_ga(inst: DRPInstance,
         return scored[i][1] if scored[i][0] <= scored[j][0] else scored[j][1]
 
     best_seen = [scored[0][0] if scored else math.inf]
+    anytime_best = best_seen[0]
+    if math.isfinite(anytime_best):
+        res.anytime.append((time.time() - t0, anytime_best))
     gen = 0
     for gen in range(generations):
         if time.time() - t0 > time_limit:
@@ -113,6 +119,9 @@ def solve_ga(inst: DRPInstance,
         scored = sorted(((fitness(t), t) for t in new_pop), key=lambda x: x[0])
         res.history.append(scored[0][0])
         res.generations = gen + 1
+        if scored[0][0] < anytime_best - 1e-9:
+            anytime_best = scored[0][0]
+            res.anytime.append((time.time() - t0, anytime_best))
 
         if tr is not None:
             now = time.time() - t0
