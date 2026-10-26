@@ -1,0 +1,38 @@
+{
+  "schema": "drp-scenario/v1",
+  "name": "pontianak-south-20",
+  "seed": 7,
+  "source": {
+    "district": "Pontianak South",
+    "road_slot": "IV",
+    "count": 20
+  },
+  "depot": {
+    "place": "Pontianak South"
+  },
+  "fleet": {
+    "n_drones": 5,
+    "battery": {
+      "factor": 0.9
+    }
+  },
+  "energy": {
+    "alpha": 1.0,
+    "beta": 0.3
+  },
+  "demand": {
+    "min": 0.5,
+    "max": 2.0
+  },
+  "nofly": {
+    "circles": [
+      {
+        "centre": {
+          "place": "Pontianak City"
+        },
+        "radius_km": 0.8
+      }
+    ]
+  },
+  "notes": "Twenty real delivery points, one restricted circle downtown."
+}
