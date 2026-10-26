@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drone-Based Delivery Optimization</title>
+<meta name="description" content="Drone routing where energy depends on the weight still onboard: exact and metaheuristic solvers, real Pontianak geography, and the evidence behind the numbers.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Sofia+Sans+Extra+Condensed:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="#top" aria-label="Drone-Based Delivery Optimization, top of page"><b>drp</b><span>Drone-Based Delivery Optimization</span></a>
+    <nav aria-label="Sections">
+      <a href="#order">Order</a>
+      <a href="#solvers">Solvers</a>
+      <a href="#evidence">Evidence</a>
+      <a href="#use">Use it</a>
+      <a href="https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <div class="coords">
+        <span class="label">Pontianak South, West Kalimantan</span>
+        <span class="label">0°03′S 109°20′E</span>
+        <span class="label">20 stops · 5 drones</span>
+      </div>
+      <h1>Every drop makes the drone <em>lighter.</em></h1>
+      <p class="lede">So the order it flies its stops in changes what every later leg costs.</p>
+      <p>This project models drone delivery with energy that depends on the weight still onboard, under battery, payload, fleet-size and no-fly limits. It solves the problem exactly where that is possible, with three metaheuristics where it isn't, and checks the answers against brute force and against 74 published optima.</p>
+      <div class="formula" aria-label="Energy of one leg">
+        <div class="eq"><i>e</i>(<i>d</i>, <i>w</i>) = <i>d</i> · (α + β<i>w</i>)</div>
+        <dl>
+          <dt>d</dt><dd>leg length, km</dd>
+          <dt>w</dt><dd>payload still onboard, kg</dd>
+          <dt>α = 1</dt><dd>the airframe's own share</dd>
+          <dt>β = 0.3</dt><dd>a full load costs ~30% more per km</dd>
+        </dl>
+      </div>
+      <div class="actions">
+        <a class="btn" href="https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem">Read the source ↗</a>
+        <div class="copyline"><code id="pipcmd">pip install -e ".[dev]"</code><button type="button" data-copy="pipcmd">Copy</button></div>
+      </div>
+    </div>
+
+    <figure class="sheet" style="margin:0">
+      <div class="sheet-head">
+        <span class="label">Instance <b>pontianak-south-20</b></span>
+        <span class="label">Solved by <b>ALNS</b> · seed 1 · 10 s</span>
+      </div>
+      <div class="sheet-frame">
+        <svg id="map" viewBox="0 0 1000 1111" role="img" aria-labelledby="map-title map-desc">
+          <title id="map-title">Five drone routes over Pontianak South</title>
+          <desc id="map-desc">An OpenStreetMap street map of Pontianak South with the equator along the top edge, a circular restricted zone over Pontianak City, the depot, twenty delivery stops and five routes. Each route's line gets thinner after every delivery because less payload is onboard.</desc>
+        </svg>
+      </div>
+      <div class="manifest" id="manifest" aria-label="Fleet manifest">
+        <div class="mhead"><span></span><span class="label">Drone · stops</span><span class="label">Onboard</span><span class="label">Energy of battery</span></div>
+      </div>
+      <div class="playbar">
+        <span class="label">Line weight = payload onboard · dashed = flying home empty</span>
+        <button type="button" id="play">Fly the plan</button>
+      </div>
+      <figcaption class="sheet-foot">
+        <span class="label">Total energy <b id="total-e">30.23</b> · certificate <b>feasible</b></span>
+        <span class="label">Basemap © OpenStreetMap contributors</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="band" id="order">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Fly the same stops in a different order and the bill changes.</h2>
+      <div class="intro">
+        <p>In ordinary vehicle routing, a loop flown backwards costs the same. Here it doesn't. A drone lifts every parcel at the depot and sheds weight at each stop, so a heavy parcel dropped early makes every leg after it cheaper. <strong>The shortest route and the cheapest route can be different routes.</strong></p>
+        <p>Pick a drone from the solved plan and re-fly its stops. Tap them on the map in the order you want; the energy is computed with the same formula the solvers use.</p>
+      </div>
+    </div>
+
+    <div class="lab">
+      <div class="mini-wrap">
+        <div class="tabs" role="tablist" aria-label="Choose a drone" id="tabs"></div>
+        <div class="mini"><svg id="mini" role="img" aria-label="The chosen drone's stops on the map"></svg></div>
+        <div class="picker" id="picker" aria-label="Stops, in the order you tap them"></div>
+        <div class="presets">
+          <span class="label">Try</span>
+          <button type="button" data-preset="solver">Solver's order</button>
+          <button type="button" data-preset="reverse">Reversed</button>
+          <button type="button" data-preset="shortest">Shortest distance</button>
+          <button type="button" data-preset="clear">Clear and pick</button>
+        </div>
+      </div>
+
+      <div class="readout" aria-live="polite">
+        <div class="seq" id="seq"></div>
+        <div class="bignums">
+          <div><span class="label">Energy</span><span class="v" id="o-e">–</span><span class="s" id="o-e-s"></span></div>
+          <div><span class="label">Distance</span><span class="v" id="o-d">–</span><span class="s">km</span></div>
+          <div><span class="label">Rank</span><span class="v" id="o-r">–</span><span class="s" id="o-r-s"></span></div>
+        </div>
+        <div>
+          <div class="gauge" id="gauge"><i id="gauge-i"></i><b id="gauge-b"></b></div>
+          <div class="gauge-scale"><span class="label">0</span><span class="label" id="gauge-l">battery</span></div>
+        </div>
+        <div class="verdict wait" id="verdict">Pick the stops</div>
+        <div class="legs" id="legs"></div>
+        <div class="key"><span><i style="background:var(--road-3)"></i>α·d, lifting the airframe</span><span><i style="background:var(--accent)"></i>β·w·d, carrying the payload</span></div>
+        <div class="rug-box">
+          <span class="label" id="rug-title">Every ordering of these stops</span>
+          <svg id="rug" aria-label="Energy of every possible ordering, with the battery limit"></svg>
+        </div>
+        <p class="callout" id="callout"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="solvers">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>Five solvers, one objective.</h2>
+      <div class="intro">
+        <p>All five share one implementation of the energy function and one feasibility check, so a comparison between them is fair by construction. Greedy warm-starts the rest. Branch &amp; Bound proves optimality on small instances; the metaheuristics carry on where it runs out of time.</p>
+        <p><strong>No metaheuristic has ever returned a value below a proven optimum.</strong> If one did, the objective or the exact method would be wrong, which makes it the project's main internal correctness check.</p>
+      </div>
+    </div>
+
+    <div class="strips" id="strips">
+      <div class="strip-head" aria-hidden="true">
+        <span class="label">Method</span><span class="label">Idea</span><span class="label">Avg. energy</span><span class="label">Avg. time</span><span class="label">Optima</span><span class="label">Energy, to scale</span>
+      </div>
+    </div>
+    <p class="foot-note">The committed study: 12 synthetic instances, 5 seeds per metaheuristic, 20 s for Branch &amp; Bound and 5 s per metaheuristic seed. "Optima" counts the proven optima found, out of the 5 instances B&amp;B could prove. Greedy's average gap on those five is 14.22%; every other method's is 0.000%.</p>
+
+    <div class="split">
+      <div>
+        <h3>The Split decoder</h3>
+        <p style="margin-top:14px">The GA, SA and ALNS never see routes. They see one ordering of all twenty customers, with no route boundaries. A dynamic program then decides where to cut it into at most five feasible routes so that total energy is lowest.</p>
+        <p>Crossover and mutation only ever rearrange a permutation, so they can't produce an invalid solution. Every feasibility question is answered inside Split, and a test enumerates every possible segmentation to prove Split finds the best one.</p>
+      </div>
+      <div style="min-width:0">
+        <span class="label">The plan above, as the metaheuristics store it. Split cuts it back into exactly these five routes.</span>
+        <div class="tour-box" style="margin-top:28px"><div class="tour" id="tour"></div></div>
+        <div class="dp">state <b>(i, k)</b> = first <b>i</b> customers covered with exactly <b>k</b> routes<br>answer = min over <b>k ≤ K</b> of <b>dp[n][k]</b>, so the fleet limit is exact, never a penalty<br>runs in <b>O(n²)</b> per decode</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="evidence">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>What has been checked, and what hasn't.</h2>
+      <div class="intro">
+        <p>Every number in the study lives in a SQLite store, one row per run, tagged with the git commit that produced it. The report's tables are generated from it. Findings that didn't survive re-measurement were retracted in the log, not quietly dropped.</p>
+      </div>
+    </div>
+
+    <div class="ledger">
+      <div class="entry">
+        <span class="label">External check</span>
+        <div class="huge">74<small> / 74</small></div>
+        <h3>Published CVRPLIB optima reproduced exactly.</h3>
+        <p>The Augerat A, B and P sets ship optimal solutions computed by other people with other code. Scored with this project's energy function and checked by its feasibility checker: <strong>0 objective mismatches, 0 infeasible.</strong> It is the only check in the project that isn't self-referential.</p>
+        <p>The same 74 instances settled a question the 12-instance study couldn't: ALNS beats the GA at <strong>p = 2 × 10⁻⁸</strong>.</p>
+      </div>
+      <div class="entry ci">
+        <span class="label">Committed study · 12 instances</span>
+        <h3>Mean gap to the per-instance reference</h3>
+        <svg id="ci" viewBox="0 0 520 250" role="img" aria-label="Mean gap with 95% bootstrap confidence intervals: SA 0.51%, ALNS 0.92%, GA 1.44%, Branch and Bound 13.09%, Greedy 19.99%"></svg>
+        <p>Mean over seeds, 95% bootstrap intervals. Friedman p = 1.3 × 10⁻⁶ across all five. Pairwise Wilcoxon: every metaheuristic beats B&amp;B and greedy; among the three metaheuristics, none is distinguishable here (p ≥ 0.0625).</p>
+      </div>
+      <div class="entry">
+        <span class="label">Exact method</span>
+        <h3>A timed-out search still says how good its answer is.</h3>
+<pre class="term"><span class="p">$</span> drp solve city.json --method bnb --time 5
+  energy   : 1504.69
+  status   : timed out -- <span class="hl">lower bound 288.40, gap 80.83%</span></pre>
+        <p>Branch &amp; Bound keeps every unexplored sibling on a frontier, so the minimum over it is a <strong>valid global lower bound</strong> even at a 1 ms cut-off. It proves optimality for n = 5 to 9 in the committed run. The bound is weak, and the log says so: from n = 15 its value is still the greedy warm start.</p>
+      </div>
+      <div class="entry">
+        <span class="label">Ablation · 528 runs</span>
+        <h3>Simulated annealing's reheats were hurting it.</h3>
+        <p>Removing one component at a time across 11 instances and 3 seeds: SA without reheats improves on <strong>10 of 11</strong> instances and halves its mean gap, p = 0.002. It is the only one of thirteen comparisons that survives a Bonferroni correction, so the rest are reported as leads, not results.</p>
+        <p>The same study found the GA genuinely needs its constructed start: without it, it finishes 2.75 points worse.</p>
+      </div>
+      <div class="entry">
+        <span class="label">624 tests</span>
+        <h3>The ones everything else rests on</h3>
+        <ul class="tests">
+          <li><code>test_split_optimality</code><span>Split matches brute-force enumeration of every segmentation.</span></li>
+          <li><code>test_bnb_ground_truth</code><span>B&amp;B equals exhaustive search, and its lower bound never exceeds the true optimum.</span></li>
+          <li><code>test_feasibility_fuzz</code><span>The feasibility check agrees with an independently written one on thousands of random solutions.</span></li>
+          <li><code>test_metamorphic</code><span>Reversing a route is free when β = 0 and generally isn't when β &gt; 0.</span></li>
+          <li><code>test_viz_theme</code><span>The colour-blind-safe palette is measured under simulated protanopia, deuteranopia and tritanopia.</span></li>
+        </ul>
+      </div>
+      <div class="entry">
+        <span class="label">Not done yet</span>
+        <h3>Open, and stated as open</h3>
+        <ul class="notyet">
+          <li>Wind, and any time dimension. Solomon instances import with their time windows dropped, and every import says so.</li>
+          <li>A REST service and 3D views.</li>
+          <li>The report's study still runs on synthetic instances; promoting the Pontianak suite is a decision deliberately not yet taken.</li>
+          <li>A stronger B&amp;B bound. Held–Karp 1-trees, LP relaxation and column generation are on the roadmap.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="use">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>From a recipe to a flight plan.</h2>
+      <div class="intro">
+        <p>One command-line tool, <code>drp</code>, covers the whole path: build an instance from a scenario, solve it, look at it, and export it to the ground-control software a real drone flies from. Every HTML view is a single self-contained file.</p>
+      </div>
+    </div>
+
+    <div class="use">
+      <div class="cmds" id="cmds">
+        <div class="cmd"><div class="body"><p>Install the package and the <code>drp</code> command.</p><pre id="c1">pip install -e ".[dev]"</pre></div><button type="button" data-copy="c1">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Generate a city: 20 stops, 5 drones, 3 polygonal no-fly zones.</p><pre id="c2"><span class="c">drp generate</span> --n 20 --drones 5 --zones 3 --seed 7 -o city.json</pre></div><button type="button" data-copy="c2">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Or build one from real Pontianak coordinates and a written recipe.</p><pre id="c3"><span class="c">drp build</span> scenario.json -o geo.json</pre></div><button type="button" data-copy="c3">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Solve it. Swap in <code>bnb</code>, <code>ga</code>, <code>sa</code> or <code>greedy</code>.</p><pre id="c4"><span class="c">drp solve</span> geo.json --method alns --time 10 -o sol.json</pre></div><button type="button" data-copy="c4">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Replay the flight in a browser, or open the B&amp;B tree and convergence views.</p><pre id="c5"><span class="c">drp show</span> sol.json --instance geo.json --web flight.html</pre></div><button type="button" data-copy="c5">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Skip the JSON: place stops on a map in a local planner.</p><pre id="c6"><span class="c">drp serve</span></pre></div><button type="button" data-copy="c6">Copy</button></div>
+        <div class="cmd"><div class="body"><p>Export one QGroundControl mission per drone.</p><pre id="c7"><span class="c">drp export</span> sol.json --instance geo.json --format qgc -o missions/</pre></div><button type="button" data-copy="c7">Copy</button></div>
+      </div>
+
+      <div class="qgc">
+        <span class="label">missions/</span>
+        <h3>Five flyable .plan files</h3>
+        <p>Each mission takes off, visits its stops in the solved order, returns and lands. The no-fly zone travels with it as an exclusion geofence. The plan above exported this way and loaded into QGroundControl.</p>
+        <ul class="files" id="files"></ul>
+<pre class="plan">"geoFence": {
+  "polygons": [{
+    <b>"inclusion": false</b>,
+    "polygon": [
+      [-0.036409, 109.322898],
+      [-0.032791, 109.321929],
+      …12 vertices around Pontianak City
+    ]
+  }]
+}</pre>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Drone-Based Delivery Optimization. Python package <code>drp</code>. Delivery coordinates from the supplied Pontianak last-mile dataset. Basemap © OpenStreetMap contributors, ODbL. All figures on this page are computed from the committed instance, solution and result files.</p>
+    <p><a href="https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem">github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem ↗</a></p>
+  </div>
+</footer>
+<div class="toast" id="toast" hidden></div>
+
+<script src="data/instance.js"></script>
+<script src="data/basemap.js"></script>
+<script src="js/model.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/lab.js"></script>
+<script src="js/sections.js"></script>
+</body>
+</html>
