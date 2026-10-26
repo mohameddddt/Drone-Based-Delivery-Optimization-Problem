@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Sofia+Sans+Extra+Condensed:wght@500;600;700;800&display=swap">
+<script>try { var t = localStorage.getItem("drp-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -20,6 +21,7 @@
       <a href="#evidence">Evidence</a>
       <a href="#use">Use it</a>
       <a href="https://github.com/mohameddddt/Drone-Based-Delivery-Optimization-Problem">GitHub ↗</a>
+      <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Switch colour theme"></button>
     </nav>
   </div>
 </header>
@@ -268,6 +270,26 @@
 </footer>
 <div class="toast" id="toast" hidden></div>
 
+<script>
+(function () {
+  var root = document.documentElement, btn = document.getElementById("theme-toggle");
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  function current() { return root.dataset.theme || (mq.matches ? "dark" : "light"); }
+  function paint() {
+    var dark = current() === "dark";
+    btn.textContent = dark ? "Light" : "Dark";
+    btn.setAttribute("aria-label", "Switch to " + (dark ? "light" : "dark") + " theme");
+  }
+  btn.addEventListener("click", function () {
+    var next = current() === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("drp-theme", next); } catch (e) {}
+    paint();
+  });
+  if (mq.addEventListener) mq.addEventListener("change", paint);
+  paint();
+})();
+</script>
 <script src="data/instance.js"></script>
 <script src="data/basemap.js"></script>
 <script src="js/model.js"></script>

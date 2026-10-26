@@ -82,6 +82,11 @@ code { font-family: var(--f-mono); font-size: 0.88em; }
 .top nav { display: flex; gap: clamp(12px, 2.4vw, 28px); flex-wrap: wrap; }
 .top nav a { font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; color: var(--muted); }
 .top nav a:hover { color: var(--ink); }
+.theme-toggle {
+  font-family: var(--f-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink); background: transparent; border: 1px solid var(--rule); padding: 3px 10px; cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--ink); }
 
 /* ---------- hero ---------- */
 .hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 36px; padding-block: 40px 56px; }
