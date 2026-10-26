@@ -35,12 +35,19 @@ extension decides — and every view is drawn in a **colour-blind-safe theme by 
 with a dash pattern, marker or hatch beside every colour so nothing depends on hue alone.
 `--theme chart` brings back the original palette.
 
+**[The project site](https://mohameddddt.github.io/Drone-Based-Delivery-Optimization-Problem/)**
+shows the committed Pontianak plan in flight and lets you re-fly any drone's stops in a
+different order against the battery. It lives in `site/`, is static, and deploys to GitHub
+Pages from `main`; `python tools/build_site.py` regenerates its data from `geo.json` and
+`sol.json`.
+
 ## Contents
 
 - [Quick start](#quick-start) · [The model](#the-model) · [Methods](#methods)
 - [Layout](#repository-layout) · [CLI](#command-line-interface) · [File formats](#file-formats)
 - [Results](#results) · [Tests](#tests) · [Status & roadmap](#status)
 - **[Visualisation guide](docs/VISUALISATION.md)** — every view, with the exact commands
+- **[Project site](https://mohameddddt.github.io/Drone-Based-Delivery-Optimization-Problem/)** — the plan in flight, and the order lab
 
 ## Quick start
 
